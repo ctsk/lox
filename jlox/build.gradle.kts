@@ -15,10 +15,20 @@ dependencies {
 }
 
 application {
-    mainClass.set("xyz.ctsk.jlox.Hello")
+    mainClass.set("xyz.ctsk.lox.Lox")
+}
+
+tasks.jar {
+    manifest {
+        attributes(mapOf("Main-Class" to "xyz.ctsk.lox.Lox"))
+    }
 }
 
 
 tasks.getByName<Test>("test") {
     useJUnitPlatform()
+}
+
+tasks.named<JavaExec>("run") {
+    standardInput = System.`in`
 }
