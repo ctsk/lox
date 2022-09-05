@@ -3,6 +3,7 @@ package xyz.ctsk.lox;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Map.entry;
 import static xyz.ctsk.lox.TokenType.*;
@@ -110,10 +111,6 @@ public class Scanner {
         return isDigit(c) || isAlpha(c);
     }
 
-    private static boolean isKeyword(String s) {
-        return keywords.containsKey(s);
-    }
-
     private void number() {
         while (isDigit(peek())) advance();
 
@@ -140,11 +137,9 @@ public class Scanner {
         while (isAlphaNumeric(peek())) advance();
 
         var text = currentMatch();
-        if (isKeyword(text)) {
-            addToken(keywords.get(text));
-        } else {
-            addToken(IDENTIFIER);
-        }
+        addToken(
+                keywords.getOrDefault(text, IDENTIFIER)
+        );
     }
 
     private void scanToken() {
