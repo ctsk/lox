@@ -14,12 +14,14 @@
 
         gcc = pkgs.gcc;
         openjdk = pkgs.openjdk;
+        maven = pkgs.maven;
       in
       {
         devShell = pkgs.mkShell {
           buildInputs = [
             gcc
             openjdk
+            maven
           ];
         };
       }
