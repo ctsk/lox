@@ -5,6 +5,11 @@
                         @Rule(head = "Grouping", body = {"Expr expression"}),
                         @Rule(head = "Literal", body = {"Object value"}),
                         @Rule(head = "Unary", body = {"Token operator", "Expr right"})
+                }),
+        @Root(name = "Stmt",
+                rules = {
+                        @Rule(head = "Expression", body = "Expr expression"),
+                        @Rule(head = "Print", body = "Expr expression")
                 })
 })
 package xyz.ctsk.lox;

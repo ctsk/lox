@@ -1,14 +1,19 @@
 package xyz.ctsk.lox;
 
-public class Interpreter implements Expr.Visitor<Object> {
+import java.util.List;
 
-    void interpret(Expr expression) {
+public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
+
+    void interpret(List<Stmt> statements) {
         try {
-            Object value = evaluate(expression);
-            System.out.println(stringify(value));
+            statements.forEach(this::execute);
         } catch (RuntimeError error) {
             Lox.runtimeError(error);
         }
+    }
+
+    private void execute(Stmt stmt) {
+        stmt.accept(this);
     }
 
     private Object evaluate(Expr expr) {
@@ -26,6 +31,18 @@ public class Interpreter implements Expr.Visitor<Object> {
         return text;
     }
 
+    @Override
+    public Void visitExpressionStmt(Stmt.Expression stmt) {
+        evaluate(stmt.expression());
+        return null;
+    }
+
+    @Override
+    public Void visitPrintStmt(Stmt.Print stmt) {
+        Object value = evaluate(stmt.expression());
+        System.out.println(stringify(value));
+        return null;
+    }
 
     @Override
     public Object visitBinaryExpr(Expr.Binary binary) {
