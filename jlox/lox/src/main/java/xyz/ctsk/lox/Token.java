@@ -13,4 +13,4 @@ public record Token(TokenType type, String lexeme, Object literal, int line) {
             return "%s %s %s".formatted(type, lexeme, literal);
         }
     }
-};
+}
