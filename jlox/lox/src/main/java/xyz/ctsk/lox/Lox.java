@@ -8,7 +8,10 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 public class Lox {
+    private static final Interpreter interpreter = new Interpreter();
+
     private static boolean hadError = false;
+    private static boolean hadRuntimeError = false;
 
     private static void report(int line, String where, String message) {
          System.err.printf("[line %d] Error %s: %s%n", line, where, message);
@@ -27,6 +30,11 @@ public class Lox {
         }
     }
 
+    static void runtimeError(RuntimeError error) {
+        System.err.printf("%s%n[line %d]%n", error.getMessage(), error.token.line());
+        hadRuntimeError = true;
+    }
+
     private static void run(String source) {
         var scanner = new Scanner(source);
         var tokens = scanner.scanTokens();
@@ -36,8 +44,7 @@ public class Lox {
 
         if (hadError) return;
 
-        System.out.println(AstPrinter.polish(expression, true));
-        System.out.println(AstPrinter.reverse_polish(expression, false));
+        interpreter.interpret(expression);
     }
 
     private static void runPrompt() throws IOException {
@@ -57,9 +64,8 @@ public class Lox {
         byte[] bytes = Files.readAllBytes(Paths.get(path));
         run(new String(bytes, Charset.defaultCharset()));
 
-        if (hadError) {
-            System.exit(65);
-        }
+        if (hadError) System.exit(65);
+        if (hadRuntimeError) System.exit(70);
     }
 
     private static void printUsage() {
