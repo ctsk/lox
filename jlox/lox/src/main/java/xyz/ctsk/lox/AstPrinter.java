@@ -9,6 +9,10 @@ public class AstPrinter {
         return expr.accept(new Polish(parentheses, true));
     }
 
+    public static String pretty(Expr expr) {
+        return expr.accept(new Pretty());
+    }
+
     private record Polish(boolean parentheses, boolean reverse) implements Expr.Visitor<String> {
         @Override
         public String visitAssignExpr(Expr.Assign expr) {
@@ -60,6 +64,41 @@ public class AstPrinter {
             } else {
                 return inners;
             }
+        }
+    }
+
+    private static class Pretty implements Expr.Visitor<String> {
+        @Override
+        public String visitAssignExpr(Expr.Assign expr) {
+            return String.join(" ", expr.name().lexeme(), "=", expr.value().accept(this));
+        }
+
+        @Override
+        public String visitBinaryExpr(Expr.Binary expr) {
+            return String.join(" ",
+                    expr.left().accept(this),
+                    expr.operator().lexeme(),
+                    expr.right().accept(this));
+        }
+
+        @Override
+        public String visitGroupingExpr(Expr.Grouping expr) {
+            return '(' + expr.expression().accept(this) + ')';
+        }
+
+        @Override
+        public String visitLiteralExpr(Expr.Literal expr) {
+            return Interpreter.stringify(expr.value());
+        }
+
+        @Override
+        public String visitUnaryExpr(Expr.Unary expr) {
+            return expr.operator().lexeme() + expr.right().accept(this);
+        }
+
+        @Override
+        public String visitVariableExpr(Expr.Variable expr) {
+            return expr.name().lexeme();
         }
     }
 }

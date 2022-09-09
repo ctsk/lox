@@ -32,7 +32,7 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
         return expr.accept(this);
     }
 
-    private String stringify(Object object) {
+    static String stringify(Object object) {
         if (object == null) return "nil";
 
         var text = object.toString();
