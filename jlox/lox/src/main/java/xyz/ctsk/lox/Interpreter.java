@@ -3,6 +3,7 @@ package xyz.ctsk.lox;
 import java.util.List;
 
 public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
+    private Environment environment = new Environment();
 
     void interpret(List<Stmt> statements) {
         try {
@@ -14,6 +15,17 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
 
     private void execute(Stmt stmt) {
         stmt.accept(this);
+    }
+
+    private void executeBlock(List<Stmt> statements, Environment environment) {
+        Environment previous = this.environment;
+        try {
+            this.environment = environment;
+
+            statements.forEach(this::execute);
+        } finally {
+            this.environment = previous;
+        }
     }
 
     private Object evaluate(Expr expr) {
@@ -32,6 +44,12 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     }
 
     @Override
+    public Void visitBlockStmt(Stmt.Block stmt) {
+        executeBlock(stmt.statements(), new Environment(environment));
+        return null;
+    }
+
+    @Override
     public Void visitExpressionStmt(Stmt.Expression stmt) {
         evaluate(stmt.expression());
         return null;
@@ -45,16 +63,30 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     }
 
     @Override
-    public Object visitBinaryExpr(Expr.Binary binary) {
-        var left = evaluate(binary.left());
-        var right = evaluate(binary.right());
+    public Void visitVarStmt(Stmt.Var stmt) {
+        Object value = stmt.initializer() == null ? null : evaluate(stmt.initializer());
+        environment.define(stmt.name().lexeme(), value);
+        return null;
+    }
 
-        switch (binary.operator().type()) {
+    @Override
+    public Object visitAssignExpr(Expr.Assign expr) {
+        var value = evaluate(expr.value());
+        environment.assign(expr.name(), value);
+        return value;
+    }
+
+    @Override
+    public Object visitBinaryExpr(Expr.Binary expr) {
+        var left = evaluate(expr.left());
+        var right = evaluate(expr.right());
+
+        switch (expr.operator().type()) {
             case MINUS, SLASH, STAR, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL ->
-                    checkNumberOperands(binary.operator(), left, right);
+                    checkNumberOperands(expr.operator(), left, right);
         }
 
-        return switch (binary.operator().type()) {
+        return switch (expr.operator().type()) {
             case MINUS -> (double) left - (double) right;
             case PLUS  -> {
                 if (left instanceof Double leftD && right instanceof Double rightD) {
@@ -65,7 +97,7 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
                     yield leftStr + rightStr;
                 }
 
-                throw new RuntimeError(binary.operator(), "Operands must be two numbers or two strings.");
+                throw new RuntimeError(expr.operator(), "Operands must be two numbers or two strings.");
             }
             case SLASH -> (double) left / (double) right;
             case STAR  -> (double) left * (double) right;
@@ -80,24 +112,29 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     }
 
     @Override
-    public Object visitGroupingExpr(Expr.Grouping grouping) {
-        return evaluate(grouping.expression());
+    public Object visitGroupingExpr(Expr.Grouping expr) {
+        return evaluate(expr.expression());
     }
 
     @Override
-    public Object visitLiteralExpr(Expr.Literal literal) {
-        return literal.value();
+    public Object visitLiteralExpr(Expr.Literal expr) {
+        return expr.value();
     }
 
     @Override
-    public Object visitUnaryExpr(Expr.Unary unary) {
-        var right = evaluate(unary.right());
+    public Object visitUnaryExpr(Expr.Unary expr) {
+        var right = evaluate(expr.right());
 
-        return switch(unary.operator().type()) {
-            case MINUS -> -asNumber(unary.operator(), right);
+        return switch(expr.operator().type()) {
+            case MINUS -> -asNumber(expr.operator(), right);
             case BANG -> !isTruthy(right);
             default -> null;
         };
+    }
+
+    @Override
+    public Object visitVariableExpr(Expr.Variable expr) {
+        return environment.get(expr.name());
     }
 
 

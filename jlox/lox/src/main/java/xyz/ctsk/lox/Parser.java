@@ -1,5 +1,6 @@
 package xyz.ctsk.lox;
 
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -9,12 +10,20 @@ import static xyz.ctsk.lox.TokenType.*;
  *
  * A recursive descent parser for the following grammar:
  * <p>
- * program        → statement* EOF ;
+ * program        → declaration* EOF ;
+ * declaration    → varDecl
+ *                | statement ;
+ * varDecl        → "var" IDENTIFIER ( "=" expression )? ";" ;
  * statement      → exprStmt
- *                | printStmt ;
+ *                | printStmt
+ *                | block ;
+ * block          → "{" declaration* "}" ;
  * exprStmt       → expression ";" ;
  * printStmt      → "print" expression ";" ;
  * expression     → equality ;
+ * expression     → assignment ;
+ * assignment     → IDENTIFIER "=" assignment
+ *                | equality ;
  * equality       → comparison ( ( "!=" | "==" ) comparison )* ;
  * comparison     → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
  * term           → factor ( ( "-" | "+" ) factor )* ;
@@ -22,7 +31,8 @@ import static xyz.ctsk.lox.TokenType.*;
  * unary          → ( "!" | "-" ) unary
  *                | primary ;
  * primary        → NUMBER | STRING | "true" | "false" | "nil"
- *                | "(" expression ")" ;
+ *                | "(" expression ")"
+ *                | IDENTIFIER;
  */
 public class Parser {
     private final List<Token> tokens;
@@ -37,22 +47,54 @@ public class Parser {
         List<Stmt> statements = new ArrayList<>();
 
         while (!isAtEnd()) {
-            statements.add(statement());
+            statements.add(declaration());
         }
 
         return statements;
     }
 
+    private Stmt declaration() {
+        try {
+            return match(VAR) ? varDeclaration() : statement();
+        } catch (ParseError error) {
+            synchronize();
+            return null;
+        }
+    }
+
+    private Stmt varDeclaration() {
+        Token name = consume(IDENTIFIER, "Expect variable name.");
+
+        Expr initializer = null;
+        if (match(EQUAL)) {
+            initializer = expression();
+        }
+
+        consume(SEMICOLON, "Expect ';' after variable declaration.");
+        return new Stmt.Var(name, initializer);
+    }
 
 
     private Stmt statement() {
         if (match(PRINT)) return printStatement();
+        if (match(LEFT_BRACE)) return new Stmt.Block(blockStatement());
         return expressionStatement();
     }
     private Stmt printStatement() {
         Expr value = expression();
         consume(SEMICOLON, "Expect ';' after value.");
         return new Stmt.Print(value);
+    }
+
+    private List<Stmt> blockStatement() {
+        var statements = new ArrayList<Stmt>();
+
+        while (!check(RIGHT_BRACE) && !isAtEnd()) {
+            statements.add(declaration());
+        }
+
+        consume(RIGHT_BRACE, "Expect '}' after block.");
+        return statements;
     }
 
     private Stmt expressionStatement() {
@@ -62,7 +104,26 @@ public class Parser {
     }
 
     private Expr expression() {
-        return equality();
+        return assignment();
+    }
+
+    private Expr assignment() {
+        Expr expr = equality();
+
+        if (match(EQUAL)) {
+            Token equals = previous();
+            Expr value = assignment();
+
+            if (expr instanceof Expr.Variable varExpr) {
+                return new Expr.Assign(varExpr.name(), value);
+            } else {
+                //We report an error but don't throw it because we do not need our parser to panic and sync.
+                //noinspection ThrowableNotThrown
+                error(equals, "Invalid assignment target.");
+            }
+        }
+
+        return expr;
     }
 
     private Expr equality() {
@@ -130,6 +191,10 @@ public class Parser {
 
         if (match(NUMBER, STRING)) {
             return new Expr.Literal(previous().literal());
+        }
+
+        if (match(IDENTIFIER)) {
+            return new Expr.Variable(previous());
         }
 
         if (match(LEFT_PAREN)) {

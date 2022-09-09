@@ -34,7 +34,7 @@ public class GrammarProcessor extends AbstractProcessor {
 
         for (var rule : rules) {
             var visitorName = getVisitorName(rule.head(), parentName);
-            var parameter = "%s %s".formatted(rule.head(), rule.head().toLowerCase());
+            var parameter = "%s %s".formatted(rule.head(), parentName.toLowerCase());
             writer.write("""
 					R %s(%s);
 					""".formatted(visitorName, parameter).indent(indent + INDENT));
@@ -71,6 +71,8 @@ public class GrammarProcessor extends AbstractProcessor {
                 writer.write("""
 						package %s;
 						
+						import java.util.List;
+						
 						interface %s {
 						""".formatted(packageName, baseName)
                 );
@@ -80,7 +82,7 @@ public class GrammarProcessor extends AbstractProcessor {
                 writer.write("""
                         <R> R accept(Visitor<R> visitor);
                         
-                        """
+                        """.indent(INDENT)
                 );
 
                 for (var rule : root.rules()) {

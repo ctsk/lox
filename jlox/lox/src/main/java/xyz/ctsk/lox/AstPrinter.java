@@ -11,32 +11,45 @@ public class AstPrinter {
 
     private record Polish(boolean parentheses, boolean reverse) implements Expr.Visitor<String> {
         @Override
-        public String visitBinaryExpr(Expr.Binary binary) {
-            var left = binary.left().accept(this);
-            var op = binary.operator().lexeme();
-            var right = binary.right().accept(this);
+        public String visitAssignExpr(Expr.Assign expr) {
+            var target = expr.name().lexeme();
+            var value = expr.value().accept(this);
+
+            return reverse ? wrap(target, value, "=") : wrap("=", target, value);
+        }
+
+        @Override
+        public String visitBinaryExpr(Expr.Binary expr) {
+            var left = expr.left().accept(this);
+            var op = expr.operator().lexeme();
+            var right = expr.right().accept(this);
 
             return reverse ? wrap(left, right, op) : wrap(op, left, right);
         }
 
         @Override
-        public String visitGroupingExpr(Expr.Grouping grouping) {
-            var inner = grouping.expression().accept(this);
+        public String visitGroupingExpr(Expr.Grouping expr) {
+            var inner = expr.expression().accept(this);
             return wrap(inner);
         }
 
         @Override
-        public String visitLiteralExpr(Expr.Literal literal) {
-            if (literal.value() == null) return "nil";
-            return literal.value().toString();
+        public String visitLiteralExpr(Expr.Literal expr) {
+            if (expr.value() == null) return "nil";
+            return expr.value().toString();
         }
 
         @Override
-        public String visitUnaryExpr(Expr.Unary unary) {
-            var op = unary.operator().lexeme();
-            var right = unary.right().accept(this);
+        public String visitUnaryExpr(Expr.Unary expr) {
+            var op = expr.operator().lexeme();
+            var right = expr.right().accept(this);
 
             return reverse ? wrap(right, op) : wrap(op, right);
+        }
+
+        @Override
+        public String visitVariableExpr(Expr.Variable expr) {
+            return expr.name().lexeme();
         }
 
         public String wrap(String... inner) {
