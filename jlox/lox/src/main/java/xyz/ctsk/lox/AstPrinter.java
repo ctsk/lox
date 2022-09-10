@@ -1,5 +1,7 @@
 package xyz.ctsk.lox;
 
+import java.util.stream.Collectors;
+
 public class AstPrinter {
     public static String polish(Expr expr, boolean parentheses) {
         return expr.accept(new Polish(parentheses, false));
@@ -29,6 +31,16 @@ public class AstPrinter {
             var right = expr.right().accept(this);
 
             return reverse ? wrap(left, right, op) : wrap(op, left, right);
+        }
+
+        @Override
+        public String visitCallExpr(Expr.Call expr) {
+            var fun = expr.callee().accept(this);
+            var args = expr.arguments().stream()
+                    .map(c -> c.accept(this))
+                    .collect(Collectors.joining(" "));
+
+            return reverse ? wrap(fun, args, "call") : wrap("call", fun, args);
         }
 
         @Override
@@ -88,6 +100,15 @@ public class AstPrinter {
                     expr.left().accept(this),
                     expr.operator().lexeme(),
                     expr.right().accept(this));
+        }
+
+        @Override
+        public String visitCallExpr(Expr.Call expr) {
+            var fun = expr.callee().accept(this);
+            var args = expr.arguments().stream()
+                    .map(c -> c.accept(this))
+                    .collect(Collectors.joining(", "));
+            return fun + "(" + args + ")";
         }
 
         @Override

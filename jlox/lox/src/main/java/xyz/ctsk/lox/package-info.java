@@ -3,6 +3,7 @@
                 rules = {
                         @Rule(head = "Assign", body = {"Token name", "Expr value"}),
                         @Rule(head = "Binary", body = {"Expr left", "Token operator", "Expr right"}),
+                        @Rule(head = "Call", body = {"Expr callee", "Token paren", "List<Expr> arguments"}),
                         @Rule(head = "Grouping", body = {"Expr expression"}),
                         @Rule(head = "Literal", body = {"Object value"}),
                         @Rule(head = "Logical", body = {"Expr left", "Token operator", "Expr right"}),

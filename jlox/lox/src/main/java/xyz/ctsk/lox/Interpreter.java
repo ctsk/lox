@@ -130,6 +130,25 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     }
 
     @Override
+    public Object visitCallExpr(Expr.Call expr) {
+        var callee = evaluate(expr.callee());
+        var arguments = expr.arguments().stream()
+                .map(this::evaluate)
+                .toList();
+
+        if (callee instanceof LoxCallable function) {
+            if (arguments.size() != function.arity()) {
+                var msg = "Expected %d arguments but got %d.".formatted(function.arity(), arguments.size());
+                throw new RuntimeError(expr.paren(), msg);
+            }
+        } else {
+            throw new RuntimeError(expr.paren(), "Can only call functions and classes.");
+        }
+
+        return null;
+    }
+
+    @Override
     public Object visitGroupingExpr(Expr.Grouping expr) {
         return evaluate(expr.expression());
     }
