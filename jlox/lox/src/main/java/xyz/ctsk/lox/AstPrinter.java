@@ -44,6 +44,15 @@ public class AstPrinter {
         }
 
         @Override
+        public String visitLogicalExpr(Expr.Logical expr) {
+            var left = expr.left().accept(this);
+            var op = expr.operator().lexeme();
+            var right = expr.right().accept(this);
+
+            return reverse ? wrap(left, right, op) : wrap(op, left, right);
+        }
+
+        @Override
         public String visitUnaryExpr(Expr.Unary expr) {
             var op = expr.operator().lexeme();
             var right = expr.right().accept(this);
@@ -89,6 +98,14 @@ public class AstPrinter {
         @Override
         public String visitLiteralExpr(Expr.Literal expr) {
             return Interpreter.stringify(expr.value());
+        }
+
+        @Override
+        public String visitLogicalExpr(Expr.Logical expr) {
+            return String.join(" ",
+                    expr.left().accept(this),
+                    expr.operator().lexeme(),
+                    expr.right().accept(this));
         }
 
         @Override

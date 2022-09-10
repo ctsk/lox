@@ -5,6 +5,7 @@
                         @Rule(head = "Binary", body = {"Expr left", "Token operator", "Expr right"}),
                         @Rule(head = "Grouping", body = {"Expr expression"}),
                         @Rule(head = "Literal", body = {"Object value"}),
+                        @Rule(head = "Logical", body = {"Expr left", "Token operator", "Expr right"}),
                         @Rule(head = "Unary", body = {"Token operator", "Expr right"}),
                         @Rule(head = "Variable", body = {"Token name"})
                 }),
@@ -12,6 +13,7 @@
                 rules = {
                         @Rule(head = "Block", body = {"List<Stmt> statements"}),
                         @Rule(head = "Expression", body = {"Expr expression"}),
+                        @Rule(head = "If", body = {"Expr condition", "Stmt thenBranch", "Stmt elseBranch"}),
                         @Rule(head = "Print", body = {"Expr expression"}),
                         @Rule(head = "Var", body = {"Token name", "Expr initializer"})
                 })
