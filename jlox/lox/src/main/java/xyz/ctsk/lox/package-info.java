@@ -14,8 +14,10 @@
                 rules = {
                         @Rule(head = "Block", body = {"List<Stmt> statements"}),
                         @Rule(head = "Expression", body = {"Expr expression"}),
+                        @Rule(head = "Function", body = {"Token name", "List<Token> params", "List<Stmt> body"}),
                         @Rule(head = "If", body = {"Expr condition", "Stmt thenBranch", "Stmt elseBranch"}),
                         @Rule(head = "Print", body = {"Expr expression"}),
+                        @Rule(head = "Return", body = {"Token keyword", "Expr value"}),
                         @Rule(head = "Var", body = {"Token name", "Expr initializer"}),
                         @Rule(head = "While", body = {"Expr condition", "Stmt body"})
                 })

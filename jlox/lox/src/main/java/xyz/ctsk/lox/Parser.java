@@ -1,6 +1,5 @@
 package xyz.ctsk.lox;
 
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -11,13 +10,18 @@ import static xyz.ctsk.lox.TokenType.*;
  * A recursive descent parser for the following grammar:
  * <p>
  * program        → declaration* EOF ;
- * declaration    → varDecl
+ * declaration    → funDecl
+ *                | varDecl
  *                | statement ;
+ * funDecl        → "fun" function ;
+ * function       → IDENTIFIER "(" parameters? ")" block ;
+ * parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
  * varDecl        → "var" IDENTIFIER ( "=" expression )? ";" ;
  * statement      → exprStmt
  *                | forStmt
  *                | ifStmt
  *                | printStmt
+ *                | returnStmt
  *                | whileStmt
  *                | block ;
  * block          → "{" declaration* "}" ;
@@ -27,6 +31,7 @@ import static xyz.ctsk.lox.TokenType.*;
  * ifStmt         → "if" "(" expression ")" statement ( "else" statement )? ;
  * whileStmt      → "while" "(" expression ")" statement ;
  * printStmt      → "print" expression ";" ;
+ * returnStmt     → "return" expression? ";" ;
  * exprStmt       → expression ";" ;
  * expression     → equality ;
  * expression     → assignment ;
@@ -67,11 +72,35 @@ public class Parser {
 
     private Stmt declaration() {
         try {
+            if (match(FUN)) return function(FunctionType.FUNCTION);
+            if (match(VAR)) return varDeclaration();
             return match(VAR) ? varDeclaration() : statement();
         } catch (ParseError error) {
             synchronize();
             return null;
         }
+    }
+
+    private Stmt.Function function(FunctionType kind) {
+        Token name = consume(IDENTIFIER, "Expect %s name.".formatted(kind.toString().toLowerCase()));
+
+        consume(LEFT_PAREN, "Expect '(' after %s name.".formatted(kind.toString().toLowerCase()));
+        List<Token> params = new ArrayList<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                if (params.size() >= 255) {
+                    // DO NOT PANIC
+                    //noinspection ThrowableNotThrown
+                    error(peek(), "Can't have more than 255 parameters.");
+                }
+                params.add(consume(IDENTIFIER, "Expect parameter name."));
+            } while (match(COMMA));
+        }
+        consume(RIGHT_PAREN, "Expect ')' after parameters");
+
+        consume(LEFT_BRACE, "Expect '{' before %s body.".formatted(kind.toString().toLowerCase()));
+        List<Stmt> body = blockStatement();
+        return new Stmt.Function(name, params, body);
     }
 
     private Stmt varDeclaration() {
@@ -91,10 +120,12 @@ public class Parser {
         if (match(FOR)) return forStatement();
         if (match(IF)) return ifStatement();
         if (match(PRINT)) return printStatement();
+        if (match(RETURN)) return returnStatement();
         if (match(WHILE)) return whileStatement();
         if (match(LEFT_BRACE)) return new Stmt.Block(blockStatement());
         return expressionStatement();
     }
+
 
     private Stmt forStatement() {
         consume(LEFT_PAREN, "Expect '(' after 'for'.");
@@ -148,6 +179,18 @@ public class Parser {
         Expr value = expression();
         consume(SEMICOLON, "Expect ';' after value.");
         return new Stmt.Print(value);
+    }
+
+
+    private Stmt returnStatement() {
+        Token keyword = previous();
+        Expr value = null;
+        if (!check(SEMICOLON)) {
+            value = expression();
+        }
+
+        consume(SEMICOLON, "Expect ';' after return value.");
+        return new Stmt.Return(keyword, value);
     }
 
     private Stmt whileStatement() {
@@ -387,4 +430,5 @@ public class Parser {
     }
 
     private static class ParseError extends RuntimeException {}
+    private enum FunctionType { FUNCTION }
 }
