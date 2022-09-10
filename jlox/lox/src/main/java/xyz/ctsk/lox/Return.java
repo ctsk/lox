@@ -7,4 +7,11 @@ public class Return extends RuntimeException {
         super(null, null, false, false);
         this.value = value;
     }
+
+    /* Potentially much faster function calls
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+        return this;
+    }
+    */
 }
