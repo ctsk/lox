@@ -15,11 +15,15 @@ import static xyz.ctsk.lox.TokenType.*;
  *                | statement ;
  * varDecl        → "var" IDENTIFIER ( "=" expression )? ";" ;
  * statement      → exprStmt
+ *                | forStmt
  *                | ifStmt
  *                | printStmt
  *                | whileStmt
  *                | block ;
  * block          → "{" declaration* "}" ;
+ * forStmt        → "for" "(" (varDecl | exprStmt | ";")
+ *                            expression? ";"
+ *                            expression? ")" statement ;
  * ifStmt         → "if" "(" expression ")" statement ( "else" statement )? ;
  * whileStmt      → "while" "(" expression ")" statement ;
  * printStmt      → "print" expression ";" ;
@@ -82,11 +86,48 @@ public class Parser {
 
 
     private Stmt statement() {
+        if (match(FOR)) return forStatement();
         if (match(IF)) return ifStatement();
         if (match(PRINT)) return printStatement();
         if (match(WHILE)) return whileStatement();
         if (match(LEFT_BRACE)) return new Stmt.Block(blockStatement());
         return expressionStatement();
+    }
+
+    private Stmt forStatement() {
+        consume(LEFT_PAREN, "Expect '(' after 'for'.");
+
+        Stmt initializer;
+        if (match(SEMICOLON)) {
+            initializer = null;
+        } else if (match(VAR)) {
+            initializer = varDeclaration();
+        } else {
+            initializer = expressionStatement();
+        }
+
+        Expr condition = check(SEMICOLON) ? null : expression();
+        consume(SEMICOLON, "Expect ';' after loop condition.");
+
+        Expr increment = check(RIGHT_PAREN) ? null : expression();
+        consume(RIGHT_PAREN, "Expect ')' after for clauses.");
+
+        Stmt body = statement();
+
+        if (increment != null) {
+            body = new Stmt.Block(List.of(body, new Stmt.Expression(increment)));
+        }
+
+        if (condition == null) {
+            condition = new Expr.Literal(true);
+        }
+        body = new Stmt.While(condition, body);
+
+        if (initializer != null) {
+            body = new Stmt.Block(List.of(initializer, body));
+        }
+        
+        return body;
     }
 
 
