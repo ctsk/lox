@@ -15,7 +15,8 @@
                         @Rule(head = "Expression", body = {"Expr expression"}),
                         @Rule(head = "If", body = {"Expr condition", "Stmt thenBranch", "Stmt elseBranch"}),
                         @Rule(head = "Print", body = {"Expr expression"}),
-                        @Rule(head = "Var", body = {"Token name", "Expr initializer"})
+                        @Rule(head = "Var", body = {"Token name", "Expr initializer"}),
+                        @Rule(head = "While", body = {"Expr condition", "Stmt body"})
                 })
 })
 package xyz.ctsk.lox;

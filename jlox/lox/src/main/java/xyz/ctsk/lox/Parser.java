@@ -17,10 +17,13 @@ import static xyz.ctsk.lox.TokenType.*;
  * statement      → exprStmt
  *                | ifStmt
  *                | printStmt
+ *                | whileStmt
  *                | block ;
  * block          → "{" declaration* "}" ;
- * exprStmt       → expression ";" ;
+ * ifStmt         → "if" "(" expression ")" statement ( "else" statement )? ;
+ * whileStmt      → "while" "(" expression ")" statement ;
  * printStmt      → "print" expression ";" ;
+ * exprStmt       → expression ";" ;
  * expression     → equality ;
  * expression     → assignment ;
  * assignment     → IDENTIFIER "=" assignment
@@ -81,9 +84,11 @@ public class Parser {
     private Stmt statement() {
         if (match(IF)) return ifStatement();
         if (match(PRINT)) return printStatement();
+        if (match(WHILE)) return whileStatement();
         if (match(LEFT_BRACE)) return new Stmt.Block(blockStatement());
         return expressionStatement();
     }
+
 
     private Stmt ifStatement() {
         consume(LEFT_PAREN, "Expect '(' after 'if'.");
@@ -102,6 +107,15 @@ public class Parser {
         return new Stmt.Print(value);
     }
 
+    private Stmt whileStatement() {
+        consume(LEFT_PAREN, "Expect '(' after 'while'.");
+        Expr condition = expression();
+        consume(RIGHT_PAREN, "Expect ')' after condition.");
+
+        Stmt body = statement();
+
+        return new Stmt.While(condition, body);
+    }
     private List<Stmt> blockStatement() {
         var statements = new ArrayList<Stmt>();
 
