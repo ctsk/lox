@@ -1,4 +1,4 @@
-package xyz.ctsk.lox.nodes.expr;
+package xyz.ctsk.lox.nodes;
 
 import com.oracle.truffle.api.dsl.NodeChild;
 import xyz.ctsk.lox.nodes.LoxExpressionNode;

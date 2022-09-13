@@ -27,15 +27,20 @@ file returns [LoxExpressionNode result]
     : expression EOF { $result = $expression.result; }
     ;
 
+
 expression returns [LoxExpressionNode result]
     : literal
             { $result = $literal.result; }
+    | op=( '-' | BANG ) expression
+            { $result = factory.createUnary($op, $expression.result); }
     | left=expression op=( '*' | '/' ) right=expression
-            { $result = factory.createBinaryNode($op, $left.result, $right.result); }
+            { $result = factory.createBinary($op, $left.result, $right.result); }
     | left=expression op=( '+' | '-' ) right=expression
-            { $result = factory.createBinaryNode($op, $left.result, $right.result); }
+            { $result = factory.createBinary($op, $left.result, $right.result); }
     | left=expression op=( LESS | LESS_EQUAL | GREATER | GREATER_EQUAL) right=expression
-            { $result = factory.createBinaryNode($op, $left.result, $right.result); }
+            { $result = factory.createBinary($op, $left.result, $right.result); }
+    | left=expression op=( EQUAL_EQUAL | BANG_EQUAL ) right=expression
+            { $result = factory.createBinary($op, $left.result, $right.result); }
     ;
 
 literal returns [LoxExpressionNode result]
