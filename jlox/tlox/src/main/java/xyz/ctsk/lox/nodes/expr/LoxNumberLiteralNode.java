@@ -13,4 +13,9 @@ public class LoxNumberLiteralNode extends LoxExpressionNode {
     public double executeDouble(VirtualFrame frame) {
         return this.value;
     }
+
+    @Override
+    public Object executeGeneric(VirtualFrame frame) {
+        return this.value;
+    }
 }

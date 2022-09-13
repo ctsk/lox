@@ -12,10 +12,10 @@ public class LoxNodeFactory {
 
     public static LoxExpressionNode createBinaryNode(Token op, LoxExpressionNode left, LoxExpressionNode right) {
         return switch (op.getText()) {
-            case "+" -> new LoxAddNode(left, right);
-            case "-" -> new LoxSubNode(left, right);
-            case "*" -> new LoxMulNode(left, right);
-            case "/" -> new LoxDivNode(left, right);
+            case "+" -> LoxAddNodeGen.create(left, right);
+            case "-" -> LoxSubNodeGen.create(left, right);
+            case "*" -> LoxMulNodeGen.create(left, right);
+            case "/" -> LoxDivNodeGen.create(left, right);
             default -> null;
         };
     }

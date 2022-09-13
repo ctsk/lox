@@ -27,6 +27,12 @@
             <version>22.2.0</version>
         </dependency>
         <dependency>
+            <groupId>org.graalvm.truffle</groupId>
+            <artifactId>truffle-dsl-processor</artifactId>
+            <version>22.2.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.antlr</groupId>
             <artifactId>antlr4</artifactId>
             <version>4.11.1</version>

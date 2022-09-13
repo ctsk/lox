@@ -1,24 +1,17 @@
 package xyz.ctsk.lox.nodes.expr;
 
-import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.nodes.Node;
-import xyz.ctsk.lox.nodes.LoxExpressionNode;
+import com.oracle.truffle.api.dsl.Fallback;
+import com.oracle.truffle.api.dsl.Specialization;
+import xyz.ctsk.lox.LoxException;
 
-public class LoxAddNode extends LoxExpressionNode {
-    @SuppressWarnings("FieldMayBeFinal")
-    @Node.Child
-    private LoxExpressionNode leftNode, rightNode;
-
-    public LoxAddNode(LoxExpressionNode leftNode, LoxExpressionNode rightNode) {
-        this.leftNode = leftNode;
-        this.rightNode = rightNode;
+public abstract class LoxAddNode extends LoxBinaryNode {
+    @Specialization
+    public double add(double left, double right) {
+        return left + right;
     }
 
-
-    @Override
-    public double executeDouble(VirtualFrame frame) {
-        var leftValue = leftNode.executeDouble(frame);
-        var rightValue = rightNode.executeDouble(frame);
-        return leftValue + rightValue;
+    @Fallback
+    protected Object typeError(Object left, Object right) {
+        throw LoxException.typeError(this, left, right);
     }
 }
