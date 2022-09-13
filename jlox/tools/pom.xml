@@ -6,7 +6,7 @@
 
     <parent>
         <groupId>xyz.ctsk.lox</groupId>
-        <artifactId>lox</artifactId>
+        <artifactId>jlox</artifactId>
         <version>1.0-SNAPSHOT</version>
     </parent>
 

@@ -15,6 +15,7 @@
         gcc = pkgs.gcc;
         openjdk = pkgs.openjdk;
         maven = pkgs.maven;
+        antlr = pkgs.antlr;
       in
       {
         devShell = pkgs.mkShell {
@@ -22,6 +23,7 @@
             gcc
             openjdk
             maven
+            antlr
           ];
         };
       }
