@@ -15,6 +15,6 @@ public class LoxRootNode extends RootNode {
 
     @Override
     public Object execute(VirtualFrame frame) {
-        return this.exprNode.executeDouble(frame);
+        return this.exprNode.executeGeneric(frame);
     }
 }

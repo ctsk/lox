@@ -16,6 +16,10 @@ public class LoxNodeFactory {
             case "-" -> LoxSubNodeGen.create(left, right);
             case "*" -> LoxMulNodeGen.create(left, right);
             case "/" -> LoxDivNodeGen.create(left, right);
+            case "<" -> LoxLessNodeGen.create(left, right);
+            case "<=" -> LoxLessOrEqualNodeGen.create(left, right);
+            case ">" -> LoxGreaterNodeGen.create(left, right);
+            case ">=" -> LoxGreaterOrEqualNodeGen.create(left, right);
             default -> null;
         };
     }

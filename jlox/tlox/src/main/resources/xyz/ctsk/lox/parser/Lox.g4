@@ -28,9 +28,14 @@ file returns [LoxExpressionNode result]
     ;
 
 expression returns [LoxExpressionNode result]
-    : literal                                           { $result = $literal.result; }
-    | left=expression op=( '*' | '/' ) right=expression { $result = factory.createBinaryNode($op, $left.result, $right.result); }
-    | left=expression op=( '+' | '-' ) right=expression { $result = factory.createBinaryNode($op, $left.result, $right.result); }
+    : literal
+            { $result = $literal.result; }
+    | left=expression op=( '*' | '/' ) right=expression
+            { $result = factory.createBinaryNode($op, $left.result, $right.result); }
+    | left=expression op=( '+' | '-' ) right=expression
+            { $result = factory.createBinaryNode($op, $left.result, $right.result); }
+    | left=expression op=( LESS | LESS_EQUAL | GREATER | GREATER_EQUAL) right=expression
+            { $result = factory.createBinaryNode($op, $left.result, $right.result); }
     ;
 
 literal returns [LoxExpressionNode result]
