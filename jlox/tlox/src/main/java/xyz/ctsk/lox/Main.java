@@ -1,6 +1,5 @@
 package xyz.ctsk.lox;
 
-import com.oracle.truffle.api.Truffle;
 import xyz.ctsk.lox.nodes.LoxRootNode;
 import xyz.ctsk.lox.parser.LoxParser;
 

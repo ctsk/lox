@@ -45,6 +45,9 @@ expression returns [LoxExpressionNode result]
 
 literal returns [LoxExpressionNode result]
     : NUMBER { $result = factory.createNumberLiteral($NUMBER); }
+    | STRING { $result = factory.createStringLiteral($STRING); }
+    | TRUE   { $result = factory.createBooleanLiteral($TRUE); }
+    | FALSE  { $result = factory.createBooleanLiteral($FALSE); }
     ;
 
 AND: 'and' ;
