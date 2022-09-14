@@ -1,8 +1,8 @@
 package xyz.ctsk.lox;
 
-public record Token(TokenType type, String lexeme, Object literal, int line) {
-    public Token(TokenType type, String lexeme, int line) {
-        this(type, lexeme, null, line);
+public record Token(TokenType type, String lexeme, Object literal, int line, int position) {
+    public Token(TokenType type, String lexeme, int line, int position) {
+        this(type, lexeme, null, line, position);
     }
 
     @Override

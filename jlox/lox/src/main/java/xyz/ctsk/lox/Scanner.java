@@ -44,7 +44,7 @@ public class Scanner {
     }
 
     private void addToken(TokenType type, Object literal) {
-        tokens.add(new Token(type, currentMatch(), literal, line));
+        tokens.add(new Token(type, currentMatch(), literal, line, current));
     }
 
     private void addToken(TokenType type) {
@@ -191,7 +191,7 @@ public class Scanner {
             scanToken();
         }
 
-        tokens.add(new Token(EOF, "", line));
+        tokens.add(new Token(EOF, "", line, current));
         return tokens;
     }
 }

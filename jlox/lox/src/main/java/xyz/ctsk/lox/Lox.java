@@ -45,6 +45,11 @@ public class Lox {
 
         if (hadError) return;
 
+        var resolver = new Resolver(interpreter);
+        resolver.resolve(statements);
+
+        if (hadError) return;
+
         interpreter.interpret(statements);
     }
 
@@ -61,7 +66,7 @@ public class Lox {
         }
     }
 
-    private static void runFile(String path) throws IOException {
+    protected static void runFile(String path) throws IOException {
         byte[] bytes = Files.readAllBytes(Paths.get(path));
         run(new String(bytes, Charset.defaultCharset()));
 
