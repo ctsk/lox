@@ -2,7 +2,6 @@ package xyz.ctsk.lox.parser;
 
 import com.oracle.truffle.api.strings.TruffleString;
 import org.antlr.v4.runtime.Token;
-import xyz.ctsk.lox.LoxException;
 import xyz.ctsk.lox.nodes.LoxExpressionNode;
 import xyz.ctsk.lox.nodes.expr.*;
 
@@ -20,6 +19,10 @@ public class LoxNodeFactory {
     public static LoxBooleanLiteralNode createBooleanLiteral(Token literalToken) {
         var value = Boolean.parseBoolean(literalToken.getText());
         return new LoxBooleanLiteralNode(value);
+    }
+
+    public static LoxNilLiteralNode createNilLiteral() {
+        return new LoxNilLiteralNode();
     }
 
     public static LoxExpressionNode createUnary(Token op, LoxExpressionNode value) {

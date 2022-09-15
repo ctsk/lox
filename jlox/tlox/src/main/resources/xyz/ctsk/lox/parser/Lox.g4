@@ -48,6 +48,7 @@ literal returns [LoxExpressionNode result]
     | STRING { $result = factory.createStringLiteral($STRING); }
     | TRUE   { $result = factory.createBooleanLiteral($TRUE); }
     | FALSE  { $result = factory.createBooleanLiteral($FALSE); }
+    | NIL    { $result = factory.createNilLiteral(); }
     ;
 
 AND: 'and' ;
