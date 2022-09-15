@@ -1,5 +1,6 @@
 package xyz.ctsk.lox;
 
+import com.oracle.truffle.api.frame.FrameDescriptor;
 import xyz.ctsk.lox.nodes.LoxRootNode;
 import xyz.ctsk.lox.parser.LoxParser;
 
@@ -22,13 +23,10 @@ public class Main {
     }
 
     public static void run(String program) {
-        var parsed = LoxParser.parseLox(program);
-
-        if (parsed instanceof LoxParser.ExpressionContext expr) {
-            var root = new LoxRootNode(expr.result);
-            var callTarget = root.getCallTarget();
-            System.out.println(callTarget.call());
-        }
+        var parseResult = LoxParser.parseLox(program);
+        var root = new LoxRootNode(parseResult.rootNode(), parseResult.frame());
+        var callTarget = root.getCallTarget();
+        System.out.println(callTarget.call());
     }
 
     public static void main(String[] args) throws IOException {

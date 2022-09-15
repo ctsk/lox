@@ -1,5 +1,6 @@
 package xyz.ctsk.lox.nodes;
 
+import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.RootNode;
 
@@ -8,8 +9,8 @@ public class LoxRootNode extends RootNode {
     @Child
     private LoxExpressionNode exprNode;
 
-    public LoxRootNode(LoxExpressionNode exprNode) {
-        super(null);
+    public LoxRootNode(LoxExpressionNode exprNode, FrameDescriptor frameDescriptor) {
+        super(null, frameDescriptor);
         this.exprNode = exprNode;
     }
 

@@ -3,6 +3,7 @@ grammar Lox;
 
 @parser::header {
 
+import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.source.Source;
 
 import xyz.ctsk.lox.nodes.LoxExpressionNode;
@@ -11,16 +12,18 @@ import xyz.ctsk.lox.parser.*;
 }
 
 @parser::members {
-    private LoxNodeFactory factory;
 
-    public static Object parseLox(String source) {
-        LoxLexer lexer = new LoxLexer(CharStreams.fromString(source));
-        LoxParser parser = new LoxParser(new CommonTokenStream(lexer));
+private LoxNodeFactory factory;
 
-        parser.factory = new LoxNodeFactory();
+public static ParseResult parseLox(String source) {
+    LoxLexer lexer = new LoxLexer(CharStreams.fromString(source));
+    LoxParser parser = new LoxParser(new CommonTokenStream(lexer));
 
-        return parser.expression();
-    }
+    parser.factory = new LoxNodeFactory();
+    var root = parser.expression().result;
+    return new ParseResult(root, parser.factory.getFrameDescriptor());
+}
+
 }
 
 file returns [LoxExpressionNode result]
@@ -41,14 +44,17 @@ expression returns [LoxExpressionNode result]
             { $result = factory.createBinary($op, $left.result, $right.result); }
     | left=expression op=( EQUAL_EQUAL | BANG_EQUAL ) right=expression
             { $result = factory.createBinary($op, $left.result, $right.result); }
+    | IDENTIFIER EQUAL expression
+            { $result = factory.createAssignment($IDENTIFIER, $expression.result); }
     ;
 
 literal returns [LoxExpressionNode result]
-    : NUMBER { $result = factory.createNumberLiteral($NUMBER); }
-    | STRING { $result = factory.createStringLiteral($STRING); }
-    | TRUE   { $result = factory.createBooleanLiteral($TRUE); }
-    | FALSE  { $result = factory.createBooleanLiteral($FALSE); }
-    | NIL    { $result = factory.createNilLiteral(); }
+    : NUMBER     { $result = factory.createNumberLiteral($NUMBER); }
+    | STRING     { $result = factory.createStringLiteral($STRING); }
+    | TRUE       { $result = factory.createBooleanLiteral($TRUE); }
+    | FALSE      { $result = factory.createBooleanLiteral($FALSE); }
+    | NIL        { $result = factory.createNilLiteral(); }
+    | IDENTIFIER { $result = factory.createRead($IDENTIFIER); }
     ;
 
 AND: 'and' ;
