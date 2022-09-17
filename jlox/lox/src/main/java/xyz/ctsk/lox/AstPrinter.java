@@ -34,6 +34,12 @@ public class AstPrinter {
         }
 
         @Override
+        public String visitGetExpr(Expr.Get expr) {
+            var left = expr.object().accept(this);
+            return left + "." + expr.name().lexeme();
+        }
+
+        @Override
         public String visitCallExpr(Expr.Call expr) {
             var fun = expr.callee().accept(this);
             var args = expr.arguments().stream()
@@ -62,6 +68,20 @@ public class AstPrinter {
             var right = expr.right().accept(this);
 
             return reverse ? wrap(left, right, op) : wrap(op, left, right);
+        }
+
+        @Override
+        public String visitSetExpr(Expr.Set expr) {
+
+
+            var left = expr.object().accept(this);
+            var val = expr.object().accept(this);
+            return wrap("=", left + "." + expr.name().lexeme(), val);
+        }
+
+        @Override
+        public String visitThisExpr(Expr.This expr) {
+            return "this";
         }
 
         @Override
@@ -103,6 +123,12 @@ public class AstPrinter {
         }
 
         @Override
+        public String visitGetExpr(Expr.Get expr) {
+            var left = expr.object().accept(this);
+            return left + "." + expr.name().lexeme();
+        }
+
+        @Override
         public String visitCallExpr(Expr.Call expr) {
             var fun = expr.callee().accept(this);
             var args = expr.arguments().stream()
@@ -127,6 +153,18 @@ public class AstPrinter {
                     expr.left().accept(this),
                     expr.operator().lexeme(),
                     expr.right().accept(this));
+        }
+
+        @Override
+        public String visitSetExpr(Expr.Set expr) {
+            var left = expr.object().accept(this);
+            var val = expr.object().accept(this);
+            return left + "." + expr.name().lexeme() + " = " + val;
+        }
+
+        @Override
+        public String visitThisExpr(Expr.This expr) {
+            return "this";
         }
 
         @Override

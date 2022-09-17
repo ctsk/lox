@@ -10,9 +10,11 @@ import static xyz.ctsk.lox.TokenType.*;
  * A recursive descent parser for the following grammar:
  * <p>
  * program        → declaration* EOF ;
- * declaration    → funDecl
+ * declaration    → classDecl
+ *                | funDecl
  *                | varDecl
  *                | statement ;
+ * classDecl      → "class" IDENTIFIER "{" function* "}" ;
  * funDecl        → "fun" function ;
  * function       → IDENTIFIER "(" parameters? ")" block ;
  * parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
@@ -35,7 +37,7 @@ import static xyz.ctsk.lox.TokenType.*;
  * exprStmt       → expression ";" ;
  * expression     → equality ;
  * expression     → assignment ;
- * assignment     → IDENTIFIER "=" assignment
+ * assignment     → ( call "." )? IDENTIFIER "=" assignment
  *                | logic_or ;
  * logic_or       → logic_and ( "or" logic_and )* ;
  * logic_and      → equality ( "and" equality )* ;
@@ -45,11 +47,12 @@ import static xyz.ctsk.lox.TokenType.*;
  * factor         → unary ( ( "/" | "*" ) unary )* ;
  * unary          → ( "!" | "-" ) unary
  *                | call ;
- * call           → primary ( "(" arguments? ")" )* ;
+ * call           → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
  * arguments      → expression ( "," expression )* ;
  * primary        → NUMBER | STRING | "true" | "false" | "nil"
  *                | "(" expression ")"
- *                | IDENTIFIER;
+ *                | IDENTIFIER
+ *                | THIS ;
  */
 public class Parser {
     private final List<Token> tokens;
@@ -72,6 +75,7 @@ public class Parser {
 
     private Stmt declaration() {
         try {
+            if (match(CLASS)) return classDeclaration();
             if (match(FUN)) return function(FunctionType.FUNCTION);
             if (match(VAR)) return varDeclaration();
             return match(VAR) ? varDeclaration() : statement();
@@ -79,6 +83,21 @@ public class Parser {
             synchronize();
             return null;
         }
+    }
+
+    private Stmt classDeclaration() {
+        var name = consume(IDENTIFIER, "Expect class name.");
+        consume(LEFT_BRACE, "Expect '{' before class body.");
+
+        List<Stmt.Function> methods = new ArrayList<>();
+
+        while (!check(RIGHT_BRACE) && !isAtEnd()) {
+            methods.add(function(FunctionType.METHOD));
+        }
+
+        consume(LEFT_BRACE, "Expect '}' after class body.");
+        return new Stmt.Class(name, methods);
+
     }
 
     private Stmt.Function function(FunctionType kind) {
@@ -232,6 +251,8 @@ public class Parser {
 
             if (expr instanceof Expr.Variable varExpr) {
                 return new Expr.Assign(varExpr.name(), value);
+            } else if (expr instanceof Expr.Get getExpr) {
+                return new Expr.Set(getExpr.object(), getExpr.name(), value);
             } else {
                 //We report an error but don't throw it because we do not need our parser to panic and sync.
                 //noinspection ThrowableNotThrown
@@ -330,7 +351,9 @@ public class Parser {
         while(true) {
             if (match(LEFT_PAREN)) {
                 expr = finishCall(expr);
-            } else {
+            } else if (match(DOT)) {
+                Token name = consume(IDENTIFIER, "Expect property name after '.'.");
+                expr = new Expr.Get(expr, name);
                 break;
             }
         }
@@ -364,6 +387,8 @@ public class Parser {
         if (match(NUMBER, STRING)) {
             return new Expr.Literal(previous().literal());
         }
+
+        if (match(THIS)) return new Expr.This(previous());
 
         if (match(IDENTIFIER)) {
             return new Expr.Variable(previous());

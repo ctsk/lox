@@ -79,6 +79,21 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     }
 
     @Override
+    public Void visitClassStmt(Stmt.Class stmt) {
+        environment.define(stmt.name().lexeme(), null);
+
+        Map<String, LoxFunction> methods = new HashMap<>();
+        for (var method : stmt.methods()) {
+            var function = new LoxFunction(method, environment, method.name().lexeme().equals("init"));
+            methods.put(method.name().lexeme(), function);
+        }
+
+        LoxClass clazz = new LoxClass(stmt.name().lexeme(), methods);
+        environment.assign(stmt.name(), clazz);
+        return null;
+    }
+
+    @Override
     public Void visitExpressionStmt(Stmt.Expression stmt) {
         evaluate(stmt.expression());
         return null;
@@ -86,7 +101,7 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
 
     @Override
     public Void visitFunctionStmt(Stmt.Function stmt) {
-        environment.define(stmt.name().lexeme(), new LoxFunction(stmt, environment));
+        environment.define(stmt.name().lexeme(), new LoxFunction(stmt, environment, false));
         return null;
     }
 
@@ -178,6 +193,15 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     }
 
     @Override
+    public Object visitGetExpr(Expr.Get expr) {
+        var object = evaluate(expr.object());
+        if (object instanceof LoxInstance loxInstance) {
+            return loxInstance.get(expr.name());
+        }
+        throw new RuntimeError(expr.name(), "Only instances have properties.");
+    }
+
+    @Override
     public Object visitCallExpr(Expr.Call expr) {
         var callee = evaluate(expr.callee());
         var arguments = expr.arguments().stream()
@@ -220,6 +244,23 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     }
 
     @Override
+    public Object visitSetExpr(Expr.Set expr) {
+        var object = evaluate(expr.object());
+        if (object instanceof LoxInstance instance) {
+            var value = evaluate(expr.value());
+            instance.set(expr.name(), value);
+            return value;
+        } else {
+            throw new RuntimeError(expr.name(), "Only instances have fields.");
+        }
+    }
+
+    @Override
+    public Object visitThisExpr(Expr.This expr) {
+        return lookupVariable(expr.keyword(), expr);
+    }
+
+    @Override
     public Object visitUnaryExpr(Expr.Unary expr) {
         var right = evaluate(expr.right());
 
@@ -235,7 +276,7 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
         return lookupVariable(expr.name(), expr);
     }
 
-    private Object lookupVariable(Token name, Expr.Variable expr) {
+    private Object lookupVariable(Token name, Expr expr) {
         var distance = locals.get(expr);
         if (distance != null) {
             return environment.getAt(distance, name.lexeme());
