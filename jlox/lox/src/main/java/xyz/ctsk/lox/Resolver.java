@@ -9,12 +9,11 @@ import java.util.Stack;
 public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     private final Interpreter interpreter;
     private final Stack<Map<String, Boolean>> scopes = new Stack<>();
-    private FunctionType currentFuntion = FunctionType.NONE;
-
-    private enum ClassType { NONE, CLASS }
+    private FunctionType currentFunction = FunctionType.NONE;
 
     private ClassType currentClass = ClassType.NONE;
 
+    private enum ClassType { NONE, CLASS }
 
     Resolver(Interpreter interpreter) {
         this.interpreter = interpreter;
@@ -56,8 +55,8 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     }
 
     private void resolveFunction(Stmt.Function function, FunctionType functionType) {
-        var enclosingFunction = currentFuntion;
-        currentFuntion = functionType;
+        var enclosingFunction = currentFunction;
+        currentFunction = functionType;
         beginScope();
         for (var param : function.params()) {
             declare(param);
@@ -65,7 +64,7 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
         }
         resolve(function.body());
         endScope();
-        currentFuntion = enclosingFunction;
+        currentFunction = enclosingFunction;
     }
 
 
@@ -142,12 +141,12 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
 
     @Override
     public Void visitReturnStmt(Stmt.Return stmt) {
-        if (currentFuntion == FunctionType.NONE) {
+        if (currentFunction == FunctionType.NONE) {
             Lox.error(stmt.keyword(), "Can't return fom top-level code.");
         }
 
         if (stmt.value() != null) {
-            if (currentFuntion == FunctionType.INITIALIZER) {
+            if (currentFunction == FunctionType.INITIALIZER) {
                 Lox.error(stmt.keyword(), "Can't return a value from an initializer.");
             }
             resolve(stmt.value());

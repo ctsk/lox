@@ -213,11 +213,11 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
                 var msg = "Expected %d arguments but got %d.".formatted(function.arity(), arguments.size());
                 throw new RuntimeError(expr.paren(), msg);
             }
+
+            return function.call(this, arguments);
         } else {
             throw new RuntimeError(expr.paren(), "Can only call functions and classes.");
         }
-
-        return function.call(this, arguments);
     }
 
     @Override
