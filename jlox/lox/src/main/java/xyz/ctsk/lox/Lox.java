@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
@@ -66,12 +67,17 @@ public class Lox {
         }
     }
 
-    protected static void runFile(String path) throws IOException {
-        byte[] bytes = Files.readAllBytes(Paths.get(path));
+    protected static int runFile(Path path) throws IOException {
+        byte[] bytes = Files.readAllBytes(path);
         run(new String(bytes, Charset.defaultCharset()));
 
-        if (hadError) System.exit(65);
-        if (hadRuntimeError) System.exit(70);
+        if (hadError) return 65;
+        if (hadRuntimeError) return 70;
+        return 0;
+    }
+
+    protected static int runFile(String path) throws IOException {
+        return runFile(Paths.get(path));
     }
 
     private static void printUsage() {
@@ -82,7 +88,7 @@ public class Lox {
         if (args.length == 0) {
             runPrompt();
         } else if (args.length == 1) {
-            runFile(args[0]);
+            System.exit(runFile(args[0]));
         } else {
             printUsage();
         }
