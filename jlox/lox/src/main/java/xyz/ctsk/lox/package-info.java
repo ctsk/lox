@@ -9,6 +9,7 @@
                         @Rule(head = "Literal", body = {"Object value"}),
                         @Rule(head = "Logical", body = {"Expr left", "Token operator", "Expr right"}),
                         @Rule(head = "Set", body = {"Expr object", "Token name", "Expr value"}),
+                        @Rule(head = "Super", body = {"Token keyword", "Token method"}),
                         @Rule(head = "This", body = {"Token keyword"}),
                         @Rule(head = "Unary", body = {"Token operator", "Expr right"}),
                         @Rule(head = "Variable", body = {"Token name"})

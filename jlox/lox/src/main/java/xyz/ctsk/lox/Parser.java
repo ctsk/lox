@@ -50,10 +50,9 @@ import static xyz.ctsk.lox.TokenType.*;
  *                | call ;
  * call           → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
  * arguments      → expression ( "," expression )* ;
- * primary        → NUMBER | STRING | "true" | "false" | "nil"
- *                | "(" expression ")"
- *                | IDENTIFIER
- *                | THIS ;
+ * primary        → "true" | "false" | "nil" | "this"
+ *                | NUMBER | STRING | IDENTIFIER | "(" expression ")"
+ *                | "super" "." IDENTIFIER ;
  */
 public class Parser {
     private final List<Token> tokens;
@@ -394,6 +393,13 @@ public class Parser {
 
         if (match(NUMBER, STRING)) {
             return new Expr.Literal(previous().literal());
+        }
+
+        if (match(SUPER)) {
+            Token keyword = previous();
+            consume(DOT, "Expect ',' after 'super'.");
+            Token method = consume(IDENTIFIER, "Expect superclass method name.");
+            return new Expr.Super(keyword, method);
         }
 
         if (match(THIS)) return new Expr.This(previous());

@@ -80,6 +80,11 @@ public class AstPrinter {
         }
 
         @Override
+        public String visitSuperExpr(Expr.Super expr) {
+            return "super";
+        }
+
+        @Override
         public String visitThisExpr(Expr.This expr) {
             return "this";
         }
@@ -160,6 +165,11 @@ public class AstPrinter {
             var left = expr.object().accept(this);
             var val = expr.object().accept(this);
             return left + "." + expr.name().lexeme() + " = " + val;
+        }
+
+        @Override
+        public String visitSuperExpr(Expr.Super expr) {
+            return "super";
         }
 
         @Override
