@@ -16,7 +16,7 @@
         @Root(name = "Stmt",
                 rules = {
                         @Rule(head = "Block", body = {"List<Stmt> statements"}),
-                        @Rule(head = "Class", body = {"Token name", "List<Stmt.Function> methods"}),
+                        @Rule(head = "Class", body = {"Token name", "Expr.Variable superclass", "List<Stmt.Function> methods"}),
                         @Rule(head = "Expression", body = {"Expr expression"}),
                         @Rule(head = "Function", body = {"Token name", "List<Token> params", "List<Stmt> body"}),
                         @Rule(head = "If", body = {"Expr condition", "Stmt thenBranch", "Stmt elseBranch"}),
