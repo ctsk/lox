@@ -1,11 +1,7 @@
-mod chunk;
-mod bytecode;
-
-use chunk::Chunk;
-use bytecode::Op;
+mod vm;
 
 fn main() {
-    let mut chunk = Chunk::new("TEST".to_string());
-    chunk.add(Op::Return);
+    let mut chunk = vm::Chunk::new("TEST".to_string());
+    chunk.add(vm::Op::Return);
     println!("{:?}", chunk);
 }

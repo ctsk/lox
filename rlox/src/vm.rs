@@ -1,6 +1,10 @@
-use crate::Op;
-
 use std::fmt;
+
+#[repr(u8)]
+#[derive(Debug)]
+pub enum Op {
+    Return
+}
 
 pub struct Chunk {
     code: Vec<Op>,
