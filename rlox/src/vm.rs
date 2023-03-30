@@ -6,6 +6,7 @@ use std::fmt;
 pub enum Op {
     Return,
     Constant { offset: usize },
+    Negate,
 }
 
 #[derive(Copy, Clone)]
@@ -57,70 +58,111 @@ impl fmt::Debug for Chunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         writeln!(f, "-*-*- {} -*-*-", self.name)?;
         for (idx, op) in self.code.iter().copied().enumerate() {
-            write!(f, "{:04}  ", idx)?;
-
-            let line = self.debug_info[idx];
-
-            if idx > 0 && self.debug_info[idx-1] == line {
-                write!(f, "   |  ")
-            } else {
-                write!(f, "{:4}  ", line)
-            }?;
-
-            match op {
-                Op::Return => writeln!(f, "{:?}", op),
-                Op::Constant { offset } =>
-                    f.debug_struct("Constant")
-                     .field("val", &self.constants[offset].val)
-                     .finish(),
-            }?;
+            writeln!(f, "{:?}", TraceInfo {
+                offset: idx,
+                op: op,
+                chunk: &self
+            })?;
         }
 
         return Ok(());
     }
 }
 
-const VM_STACK_SIZE: usize = 256;
-
-struct VM {
-    trace: bool,
-    stack: Vec<Value>,
-    code: Chunk
+struct TraceInfo<'a> {
+    offset: usize,
+    op: Op,
+    chunk: &'a Chunk
 }
 
-enum VMError {
+impl fmt::Debug for TraceInfo<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let chunk = self.chunk;
+        let op = self.op;
+        let offset = self.offset;
+
+        write!(f, "{:04}  ", offset)?;
+
+        let line = chunk.debug_info[offset];
+
+        if offset > 0 && chunk.debug_info[offset-1] == line {
+            write!(f, "   |  ")
+        } else {
+            write!(f, "{:4}  ", line)
+        }?;
+
+        match op {
+            Op::Return | Op::Negate => write!(f, "{:?}", op),
+            Op::Constant { offset } => {
+                f.debug_struct("Constant")
+                    .field("val", &chunk.constants[offset].val)
+                    .finish()?;
+                write!(f, "")
+            },
+        }
+    }
+}
+
+pub struct VM {
+    pub trace: bool,
+    stack: Vec<Value>,
+    pc: usize,
+}
+
+#[derive(Debug)]
+pub enum VMError {
     Compile,
     Runtime
 }
 
 impl VM {
+    pub fn new() -> VM {
+        VM {
+            trace: false,
+            stack: Vec::new(),
+            pc: 0,
+        }
+    }
+
     fn push(&mut self, value: Value) {
         self.stack.push(value);
     }
 
-    fn pop(&mut self) -> Value {
-        self.stack.pop().unwrap()
+    fn pop(&mut self) -> Result<Value, VMError> {
+        self.stack.pop().ok_or(VMError::Runtime)
     }
 
     pub fn interpret(&mut self, chunk: &Chunk) -> Result<(), VMError> {
-        for instr in chunk.code.iter().copied() {
-            if self.trace {
-                print!("        [");
-                for value in self.stack.iter() {
-                    println!("{:?} | ", value);
-                }
-                println!("_ ]");
+        while self.pc < chunk.code.len() {
+            let instr = chunk.code[self.pc];
+            self.pc += 1;
 
-                println!("{:?}", instr);
+            if self.trace {
+                print!("            [ ");
+                for value in self.stack.iter() {
+                    print!("{:?} | ", value);
+                }
+                println!("_ ]\n");
+
+
+                println!("{:?}\n", TraceInfo {
+                    offset: self.pc - 1,
+                    op: instr,
+                    chunk: chunk
+                });
             }
 
             match instr {
                 Op::Return => {
-                    print!("{:?}", self.pop());
+                    print!("{:?}", self.pop()?);
                     return Ok(())
                 },
                 Op::Constant { offset } => {
-                    self.push(self.code.constants[offset])
+                    self.push(chunk.constants[offset])
+                }
+                Op::Negate => {
+                    let new_val = -self.pop()?.val;
+                    self.push(Value::from(new_val));
                 }
             }
         }
