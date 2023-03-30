@@ -8,9 +8,15 @@ pub enum Op {
     Constant { offset: usize },
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone)]
 pub struct Value {
     val: f64,
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.val)
+    }
 }
 
 impl From<f64> for Value {
@@ -56,10 +62,10 @@ impl fmt::Debug for Chunk {
             let line = self.debug_info[idx];
 
             if idx > 0 && self.debug_info[idx-1] == line {
-                write!(f, "   |  ")?;
+                write!(f, "   |  ")
             } else {
-                write!(f, "{:4}  ", line)?;
-            }
+                write!(f, "{:4}  ", line)
+            }?;
 
             match op {
                 Op::Return => writeln!(f, "{:?}", op),
@@ -71,5 +77,54 @@ impl fmt::Debug for Chunk {
         }
 
         return Ok(());
+    }
+}
+
+const VM_STACK_SIZE: usize = 256;
+
+struct VM {
+    trace: bool,
+    stack: Vec<Value>,
+    code: Chunk
+}
+
+enum VMError {
+    Compile,
+    Runtime
+}
+
+impl VM {
+    fn push(&mut self, value: Value) {
+        self.stack.push(value);
+    }
+
+    fn pop(&mut self) -> Value {
+        self.stack.pop().unwrap()
+    }
+
+    pub fn interpret(&mut self, chunk: &Chunk) -> Result<(), VMError> {
+        for instr in chunk.code.iter().copied() {
+            if self.trace {
+                print!("        [");
+                for value in self.stack.iter() {
+                    println!("{:?} | ", value);
+                }
+                println!("_ ]");
+
+                println!("{:?}", instr);
+            }
+
+            match instr {
+                Op::Return => {
+                    print!("{:?}", self.pop());
+                    return Ok(())
+                },
+                Op::Constant { offset } => {
+                    self.push(self.code.constants[offset])
+                }
+            }
+        }
+
+        return Ok(())
     }
 }
