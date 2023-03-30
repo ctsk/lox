@@ -2,7 +2,7 @@ package xyz.ctsk.lox.nodes.expr;
 
 import com.oracle.truffle.api.dsl.Fallback;
 import com.oracle.truffle.api.dsl.Specialization;
-import xyz.ctsk.lox.LoxException;
+import xyz.ctsk.lox.runtime.LoxException;
 import xyz.ctsk.lox.nodes.LoxBinaryNode;
 
 public abstract class LoxLessNode extends LoxBinaryNode {

@@ -1,4 +1,4 @@
-package xyz.ctsk.lox;
+package xyz.ctsk.lox.runtime;
 
 import com.oracle.truffle.api.exception.AbstractTruffleException;
 import com.oracle.truffle.api.nodes.Node;
