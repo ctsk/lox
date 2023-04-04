@@ -7,6 +7,10 @@ pub enum Op {
     Return,
     Constant { offset: usize },
     Negate,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
 }
 
 #[derive(Copy, Clone)]
@@ -46,7 +50,6 @@ impl Chunk {
     pub fn add_op(&mut self, op: Op, line: usize) {
         self.code.push(op);
         self.debug_info.push(line);
-
     }
 
     pub fn add_constant(&mut self, value: Value) {
@@ -58,11 +61,15 @@ impl fmt::Debug for Chunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         writeln!(f, "-*-*- {} -*-*-", self.name)?;
         for (idx, op) in self.code.iter().copied().enumerate() {
-            writeln!(f, "{:?}", TraceInfo {
-                offset: idx,
-                op: op,
-                chunk: &self
-            })?;
+            writeln!(
+                f,
+                "{:?}",
+                TraceInfo {
+                    offset: idx,
+                    op: op,
+                    chunk: &self
+                }
+            )?;
         }
 
         return Ok(());
@@ -72,7 +79,7 @@ impl fmt::Debug for Chunk {
 struct TraceInfo<'a> {
     offset: usize,
     op: Op,
-    chunk: &'a Chunk
+    chunk: &'a Chunk,
 }
 
 impl fmt::Debug for TraceInfo<'_> {
@@ -85,20 +92,22 @@ impl fmt::Debug for TraceInfo<'_> {
 
         let line = chunk.debug_info[offset];
 
-        if offset > 0 && chunk.debug_info[offset-1] == line {
+        if offset > 0 && chunk.debug_info[offset - 1] == line {
             write!(f, "   |  ")
         } else {
             write!(f, "{:4}  ", line)
         }?;
 
         match op {
-            Op::Return | Op::Negate => write!(f, "{:?}", op),
+            Op::Return | Op::Negate | Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
+                write!(f, "{:?}", op)
+            }
             Op::Constant { offset } => {
                 f.debug_struct("Constant")
                     .field("val", &chunk.constants[offset].val)
                     .finish()?;
                 write!(f, "")
-            },
+            }
         }
     }
 }
@@ -112,7 +121,7 @@ pub struct VM {
 #[derive(Debug)]
 pub enum VMError {
     Compile,
-    Runtime
+    Runtime,
 }
 
 impl VM {
@@ -144,29 +153,41 @@ impl VM {
                 }
                 println!("_ ]\n");
 
-
-                println!("{:?}\n", TraceInfo {
-                    offset: self.pc - 1,
-                    op: instr,
-                    chunk: chunk
-                });
+                println!(
+                    "{:?}\n",
+                    TraceInfo {
+                        offset: self.pc - 1,
+                        op: instr,
+                        chunk: chunk
+                    }
+                );
             }
 
             match instr {
                 Op::Return => {
                     print!("{:?}", self.pop()?);
-                    return Ok(())
-                },
-                Op::Constant { offset } => {
-                    self.push(chunk.constants[offset])
+                    return Ok(());
                 }
+                Op::Constant { offset } => self.push(chunk.constants[offset]),
                 Op::Negate => {
                     let new_val = -self.pop()?.val;
                     self.push(Value::from(new_val));
                 }
+                Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    let r = match instr {
+                        Op::Add => a.val + b.val,
+                        Op::Subtract => a.val - b.val,
+                        Op::Multiply => a.val * b.val,
+                        Op::Divide => a.val / b.val,
+                        _ => unreachable!()
+                    };
+                    self.push(Value::from(r))
+                }
             }
         }
 
-        return Ok(())
+        return Ok(());
     }
 }
