@@ -13,7 +13,7 @@ pub enum Op {
     Divide,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub struct Value {
     val: f64,
 }
@@ -189,5 +189,44 @@ impl VM {
         }
 
         return Ok(());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Chunk, Op, Value, VM};
+
+    #[test]
+    fn simple_arithmetic() {
+        let mut chunk = Chunk::new("TEST".to_string());
+        chunk.add_constant(Value::from(3.));
+        chunk.add_constant(Value::from(7.));
+        chunk.add_constant(Value::from(11.));
+        chunk.add_constant(Value::from(17.));
+        chunk.add_constant(Value::from(500.));
+        chunk.add_constant(Value::from(1000.));
+        chunk.add_constant(Value::from(250.));
+
+
+        chunk.add_op(Op::Constant { offset: 0 }, 1);
+        chunk.add_op(Op::Constant { offset: 1 }, 1);
+        chunk.add_op(Op::Multiply, 1);
+        chunk.add_op(Op::Constant { offset: 2 }, 1);
+        chunk.add_op(Op::Constant { offset: 3 }, 1);
+        chunk.add_op(Op::Multiply, 1);
+        chunk.add_op(Op::Multiply, 1);
+        chunk.add_op(Op::Negate, 1);
+        chunk.add_op(Op::Constant { offset: 4 }, 2);
+        chunk.add_op(Op::Constant { offset: 5 }, 2);
+        chunk.add_op(Op::Add, 2);
+        chunk.add_op(Op::Constant { offset: 6 }, 2);
+        chunk.add_op(Op::Subtract, 2);
+        chunk.add_op(Op::Negate, 2);
+        chunk.add_op(Op::Divide, 2);
+
+        let mut interpreter = VM::new();
+        interpreter.interpret(&chunk).unwrap();
+
+        assert_eq!(interpreter.stack[0], Value::from(3.1416));
     }
 }
