@@ -141,7 +141,7 @@ impl VM {
         self.stack.pop().ok_or(VMError::Runtime)
     }
 
-    pub fn interpret(&mut self, chunk: &Chunk) -> Result<(), VMError> {
+    pub fn run(&mut self, chunk: &Chunk) -> Result<(), VMError> {
         while self.pc < chunk.code.len() {
             let instr = chunk.code[self.pc];
             self.pc += 1;
@@ -207,7 +207,6 @@ mod tests {
         chunk.add_constant(Value::from(1000.));
         chunk.add_constant(Value::from(250.));
 
-
         chunk.add_op(Op::Constant { offset: 0 }, 1);
         chunk.add_op(Op::Constant { offset: 1 }, 1);
         chunk.add_op(Op::Multiply, 1);
@@ -224,9 +223,9 @@ mod tests {
         chunk.add_op(Op::Negate, 2);
         chunk.add_op(Op::Divide, 2);
 
-        let mut interpreter = VM::new();
-        interpreter.interpret(&chunk).unwrap();
+        let mut vm = VM::new();
+        vm.run(&chunk).unwrap();
 
-        assert_eq!(interpreter.stack[0], Value::from(3.1416));
+        assert_eq!(vm.stack[0], Value::from(3.1416));
     }
 }
