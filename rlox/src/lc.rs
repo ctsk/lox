@@ -1,6 +1,7 @@
-use std::collections::BTreeSet;
 use std::iter::Peekable;
 use std::str::CharIndices;
+
+use crate::bc::Chunk;
 
 #[derive(Debug)]
 enum TokenType {

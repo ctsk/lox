@@ -1,9 +1,11 @@
-mod vm;
+mod bc;
 mod lc;
+mod vm;
 
 use std::env;
 
 fn repl() {
+
 }
 
 fn run_file() {
