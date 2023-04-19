@@ -2,3 +2,8 @@
 *.out
 *.class
 .idea
+
+
+# Added by cargo
+
+/target

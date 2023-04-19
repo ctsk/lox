@@ -3,7 +3,7 @@ use std::str::CharIndices;
 
 use crate::bc::Chunk;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum TokenType {
     Eof,
 
@@ -52,7 +52,7 @@ enum TokenType {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Token<'src> {
     ttype: TokenType,
     span: &'src str,
@@ -255,12 +255,18 @@ impl<'src> Iterator for Scanner<'src> {
     }
 }
 
+struct Parser<'src> {
+    scanner: Peekable<Scanner<'src>>
+}
+
+impl<'src> Parser<'src> {
+    fn expression() {
+
+    }
+}
+
 pub fn compile(source: &str) {
     let scanner = Scanner::new(source);
-
-    for token in scanner {
-        println!("{:?}", token)
-    }
 }
 
 #[cfg(test)]
@@ -268,7 +274,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_compile() {
-        compile("print(1+2*3)");
+    fn test_scanner() {
+        let source = "print(1+2*3);";
+        let scanner = Scanner::new(source);
+
+        let tokens: Vec<Token> = scanner.collect();
+
+        assert_eq!(tokens, vec![
+            Token { ttype: TokenType::Print, span: &source[0..=4]},
+            Token { ttype: TokenType::LeftParen, span: &source[5..=5]},
+            Token { ttype: TokenType::Number, span: &source[6..=6]},
+            Token { ttype: TokenType::Plus, span: &source[7..=7]},
+            Token { ttype: TokenType::Number, span: &source[8..=8]},
+            Token { ttype: TokenType::Star, span: &source[9..=9]},
+            Token { ttype: TokenType::Number, span: &source[10..=10]},
+            Token { ttype: TokenType::RightParen, span: &source[11..=11]},
+            Token { ttype: TokenType::Semicolon, span: &source[12..=12]}
+        ]);
     }
 }
