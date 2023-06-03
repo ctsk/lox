@@ -31,16 +31,14 @@ impl From<f64> for Value {
 
 pub struct Chunk {
     pub code: Vec<Op>,
-    pub name: String,
     pub debug_info: Vec<usize>,
     pub constants: Vec<Value>,
 }
 
 impl Chunk {
-    pub fn new(name: String) -> Self {
+    pub fn new() -> Self {
         Chunk {
             code: Vec::new(),
-            name,
             debug_info: Vec::new(),
             constants: Vec::new(),
         }
@@ -56,9 +54,14 @@ impl Chunk {
     }
 }
 
+pub struct NamedChunk {
+    name: String,
+    chunk: Chunk
+}
+
 impl fmt::Debug for Chunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        writeln!(f, "-*-*- {} -*-*-", self.name)?;
+        writeln!(f, "-*-*- Chunk @ {:p} -*-*-", self)?;
         for (idx, op) in self.code.iter().copied().enumerate() {
             writeln!(
                 f,
@@ -71,7 +74,16 @@ impl fmt::Debug for Chunk {
             )?;
         }
 
-        return Ok(());
+        Ok(())
+    }
+}
+
+impl fmt::Debug for NamedChunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        writeln!(f, "-*-*- {} -*-*-", self.name)?;
+        write!(f, "{:?}", self.chunk)?;
+
+        Ok(())
     }
 }
 
