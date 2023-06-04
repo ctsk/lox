@@ -9,7 +9,7 @@ pub struct VM {
 #[derive(Debug)]
 pub enum VMError {
     Compile,
-    Runtime,
+    Runtime(&'static str, usize),
 }
 
 impl VM {
@@ -21,12 +21,16 @@ impl VM {
         }
     }
 
+    fn runtime_err(&self, msg: &'static str) -> VMError {
+        return VMError::Runtime(msg, self.pc);
+    }
+
     fn push(&mut self, value: Value) {
         self.stack.push(value);
     }
 
     fn pop(&mut self) -> Result<Value, VMError> {
-        self.stack.pop().ok_or(VMError::Runtime)
+        self.stack.pop().ok_or_else(|| self.runtime_err("Attempt to pop of empty stack."))
     }
 
     pub fn run(&mut self, chunk: &Chunk) -> Result<(), VMError> {
@@ -52,10 +56,7 @@ impl VM {
             }
 
             match instr {
-                Op::Return => {
-                    print!("{:?}", self.pop()?);
-                    return Ok(());
-                }
+                Op::Return => print!("{:?}", self.pop()?),
                 Op::Constant { offset } => self.push(chunk.constants[offset]),
                 Op::Negate => {
                     let new_val = -self.pop()?.val;
@@ -65,13 +66,13 @@ impl VM {
                     let b = self.pop()?;
                     let a = self.pop()?;
                     let r = match instr {
-                        Op::Add => a.val + b.val,
-                        Op::Subtract => a.val - b.val,
-                        Op::Multiply => a.val * b.val,
-                        Op::Divide => a.val / b.val,
-                        _ => unreachable!()
-                    };
-                    self.push(Value::from(r))
+                        Op::Add => Ok(a.val + b.val),
+                        Op::Subtract => Ok(a.val - b.val),
+                        Op::Multiply => Ok(a.val * b.val),
+                        Op::Divide => Ok(a.val / b.val),
+                        _ => Err(self.runtime_err("Op not implemented"))
+                    }?;
+                    self.push(r.into())
                 }
             }
         }
@@ -86,7 +87,7 @@ mod tests {
 
     #[test]
     fn simple_arithmetic() {
-        let mut chunk = Chunk::new("TEST".to_string());
+        let mut chunk = Chunk::new();
         chunk.add_constant(Value::from(3.));
         chunk.add_constant(Value::from(7.));
         chunk.add_constant(Value::from(11.));

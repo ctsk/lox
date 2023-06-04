@@ -1,9 +1,10 @@
+use std::convert::identity;
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-use crate::bc::Chunk;
+use crate::bc::{Chunk, Op};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TokenType {
     Eof,
 
@@ -78,8 +79,15 @@ impl LineMap {
         }
     }
 
-    fn get_lines(&self, slice: &str) -> (usize, usize) {
-        return (0, 0)
+    fn get_line(&self, pos: usize) -> usize {
+        self.line_breaks
+            .binary_search(&pos)
+            .unwrap_or_else(identity)
+    }
+
+    fn get_lines(&self, start: usize, slice: &str) -> (usize, usize) {
+        let end = start + slice.len();
+        (self.get_line(start), self.get_line(end))
     }
 }
 
@@ -256,17 +264,140 @@ impl<'src> Iterator for Scanner<'src> {
 }
 
 struct Parser<'src> {
-    scanner: Peekable<Scanner<'src>>
+    scanner: Peekable<Scanner<'src>>,
+    chunk: Chunk,
+}
+
+enum Associativity {
+    Left,
+    Right,
+    NonAssoc,
+}
+
+#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+enum Precedence {
+    None,
+    Assignment,
+    Or,
+    And,
+    Equality,
+    Comparison,
+    Term,
+    Factor,
+    Unary,
+    Call,
+    Primary,
+}
+
+type ParseInfo = (Associativity, Precedence, Op, Option<Op>);
+fn get_info(ttype: TokenType) -> ParseInfo {
+    match ttype {
+        TokenType::Plus => (Associativity::Left, Precedence::Term, Op::Add, None),
+        TokenType::Minus => (
+            Associativity::Left,
+            Precedence::Term,
+            Op::Subtract,
+            Some(Op::Negate),
+        ),
+        TokenType::Slash => (Associativity::Left, Precedence::Factor, Op::Divide, None),
+        TokenType::Star => (Associativity::Left, Precedence::Factor, Op::Multiply, None),
+        _ => todo!(),
+    }
 }
 
 impl<'src> Parser<'src> {
-    fn expression() {
+    fn new(sc: Scanner<'src>) -> Self {
+        Parser {
+            scanner: sc.into_iter().peekable(),
+            chunk: Chunk::new(),
+        }
+    }
 
+    fn result(&self) -> &Chunk {
+        return &self.chunk;
+    }
+
+    fn precedence(ttype: TokenType) -> Precedence {
+        use TokenType::*;
+        match ttype {
+            Plus | Minus => Precedence::Term,
+            Star | Slash => Precedence::Factor,
+            _ => todo!(),
+        }
+    }
+
+    fn associativity(prec: Precedence) -> Associativity {
+        use Precedence::*;
+        match prec {
+            Term | Factor => Associativity::Left,
+            _ => Associativity::NonAssoc,
+        }
+    }
+
+    fn _expression(&mut self, min_prec: Precedence) {
+        match self.scanner.next().unwrap() {
+            Token {
+                ttype: TokenType::Minus,
+                span: _,
+            } => {
+                self._expression(Precedence::Unary);
+                self.chunk.add_op(Op::Negate, 0)
+            }
+            Token {
+                ttype: TokenType::Number,
+                span,
+            } => match span.parse::<f64>() {
+                Ok(c) => {
+                    let constant_pos = self.chunk.add_constant(c.into());
+                    self.chunk.add_op(Op::Constant { offset: constant_pos }, 0);
+                }
+                _ => panic!("Could not parse number"),
+            },
+            _ => panic!("Expected '-' or number"),
+        };
+
+        loop {
+            let op = match self.scanner.next_if(|token| {
+                let op_prec = Self::precedence(token.ttype);
+                if op_prec == min_prec {
+                    match Self::associativity(min_prec) {
+                        Associativity::Left => false,
+                        Associativity::Right => true,
+                        Associativity::NonAssoc => {
+                            panic!("NonAssoc operation found in associative position")
+                        }
+                    }
+                } else {
+                    return op_prec > min_prec;
+                }
+            }) {
+                Some(token) => token,
+                None => break,
+            };
+
+            // Generates code for rhs
+            self._expression(Self::precedence(op.ttype));
+
+            let op_decoded = match op.ttype {
+                TokenType::Plus => Op::Add,
+                TokenType::Minus => Op::Subtract,
+                TokenType::Star => Op::Multiply,
+                TokenType::Slash => Op::Divide,
+                _ => todo!(),
+            };
+
+            self.chunk.add_op(op_decoded, 0)
+        }
+    }
+
+    pub fn expression(&mut self) {
+        self._expression(Precedence::None);
     }
 }
 
 pub fn compile(source: &str) {
     let scanner = Scanner::new(source);
+    let parser = Parser::new(scanner);
 }
 
 #[cfg(test)]
@@ -280,16 +411,57 @@ mod tests {
 
         let tokens: Vec<Token> = scanner.collect();
 
-        assert_eq!(tokens, vec![
-            Token { ttype: TokenType::Print, span: &source[0..=4]},
-            Token { ttype: TokenType::LeftParen, span: &source[5..=5]},
-            Token { ttype: TokenType::Number, span: &source[6..=6]},
-            Token { ttype: TokenType::Plus, span: &source[7..=7]},
-            Token { ttype: TokenType::Number, span: &source[8..=8]},
-            Token { ttype: TokenType::Star, span: &source[9..=9]},
-            Token { ttype: TokenType::Number, span: &source[10..=10]},
-            Token { ttype: TokenType::RightParen, span: &source[11..=11]},
-            Token { ttype: TokenType::Semicolon, span: &source[12..=12]}
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token {
+                    ttype: TokenType::Print,
+                    span: &source[0..=4]
+                },
+                Token {
+                    ttype: TokenType::LeftParen,
+                    span: &source[5..=5]
+                },
+                Token {
+                    ttype: TokenType::Number,
+                    span: &source[6..=6]
+                },
+                Token {
+                    ttype: TokenType::Plus,
+                    span: &source[7..=7]
+                },
+                Token {
+                    ttype: TokenType::Number,
+                    span: &source[8..=8]
+                },
+                Token {
+                    ttype: TokenType::Star,
+                    span: &source[9..=9]
+                },
+                Token {
+                    ttype: TokenType::Number,
+                    span: &source[10..=10]
+                },
+                Token {
+                    ttype: TokenType::RightParen,
+                    span: &source[11..=11]
+                },
+                Token {
+                    ttype: TokenType::Semicolon,
+                    span: &source[12..=12]
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parser() {
+        let source = "1 + 1 * 2";
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(scanner);
+        parser.expression();
+        let result = parser.result();
+
+        print!("{:?}", result)
     }
 }

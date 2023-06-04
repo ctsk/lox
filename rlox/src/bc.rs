@@ -49,8 +49,9 @@ impl Chunk {
         self.debug_info.push(line);
     }
 
-    pub fn add_constant(&mut self, value: Value) {
+    pub fn add_constant(&mut self, value: Value) -> usize {
         self.constants.push(value);
+        self.constants.len() - 1
     }
 }
 
