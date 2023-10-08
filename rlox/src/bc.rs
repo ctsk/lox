@@ -7,6 +7,8 @@ pub enum Op {
     Return,
     Constant { offset: usize },
     Nil,
+    True,
+    False,
     Negate,
     Add,
     Subtract,
@@ -17,6 +19,7 @@ pub enum Op {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Value {
     Nil,
+    Bool(bool),
     Number(f64),
 }
 
@@ -134,7 +137,9 @@ impl fmt::Debug for TraceInfo<'_> {
         }?;
 
         match op {
-            Op::Return | Op::Nil | Op::Negate | Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
+            Op::Return | Op::Nil | Op::True
+            | Op::False | Op::Negate | Op::Add
+            | Op::Subtract | Op::Multiply | Op::Divide => {
                 write!(f, "{:?}", op)
             }
             Op::Constant { offset } => {

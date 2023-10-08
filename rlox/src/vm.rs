@@ -77,6 +77,8 @@ impl VM {
                 Op::Return => print!("{:?}", self.pop()?),
                 Op::Constant { offset } => self.push(chunk.constants[offset]),
                 Op::Nil => self.push(Value::Nil),
+                Op::True => self.push(Value::Bool(true)),
+                Op::False => self.push(Value::Bool(false)),
                 Op::Negate => {
                     let new_val = -self.pop_num()?;
                     self.push(new_val.into());
@@ -143,7 +145,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_type_error() {
+    fn nil_error() {
         let chunk = Chunk::new_with(
             vec![Op::Nil, Op::Negate],
             vec![],

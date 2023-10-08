@@ -349,10 +349,16 @@ impl<'src> Parser<'src> {
                     };
                 }
                 Token {
-                    ttype: TokenType::Nil,
+                    ttype: ttype@(TokenType::Nil | TokenType::True | TokenType::False),
                     span: _,
                 } => {
-                    chunk.add_op(Op::Nil, 0);
+                    let op = match ttype {
+                        TokenType::Nil => Op::Nil,
+                        TokenType::True => Op::True,
+                        TokenType::False => Op::False,
+                        _ => unreachable!()
+                    };
+                    chunk.add_op(op, 0);
                 }
                 Token {
                     ttype: TokenType::LeftParen,
@@ -503,5 +509,24 @@ mod tests {
         );
 
         assert!(chunk.instr_eq(&expected));
+    }
+
+    #[test]
+    fn parse_bool_literals() {
+        let source = "true * false";
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(scanner);
+        let mut chunk = Chunk::new();
+        parser.expression(&mut chunk);
+
+        use crate::bc::Op::*;
+        let expected = Chunk::new_with(
+            vec![True, False, Multiply],
+            vec![],
+            vec![],
+        );
+
+        assert!(chunk.instr_eq(&expected));
+
     }
 }
