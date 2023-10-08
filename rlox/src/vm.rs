@@ -1,3 +1,4 @@
+use std::ops::Not;
 use crate::bc::{Chunk, Op, TraceInfo, Value};
 
 pub struct VM {
@@ -35,7 +36,7 @@ impl VM {
             .ok_or_else(|| self.runtime_err("Attempt to pop of empty stack."))
     }
 
-    pub fn run(&mut self, chunk: &Chunk) -> Result<(), VMError> {
+    pub fn run(&mut self, chunk: &Chunk) -> Result<Option<Value>, VMError> {
         while self.pc < chunk.code.len() {
             let instr = chunk.code[self.pc];
             self.pc += 1;
@@ -79,7 +80,7 @@ impl VM {
             }
         }
 
-        Ok(())
+        Ok(self.stack.is_empty().not().then_some(self.stack[self.stack.len() - 1]))
     }
 }
 

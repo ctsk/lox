@@ -3,28 +3,43 @@ mod lc;
 mod vm;
 
 use std::env;
+use std::io;
+
+use bc::Chunk;
+use vm::VM;
+use crate::vm::VMError;
 
 fn repl() {
+    let mut buffer = String::new();
 
+    loop {
+        match io::stdin().read_line(&mut buffer) {
+            Ok(n) => {
+                let mut chunk = Chunk::new();
+                lc::compile(buffer.as_str(), &mut chunk);
+                let mut vm = VM::new();
+                let result = vm.run(&chunk);
+                println!("{:?}", result);
+                buffer.clear();
+            },
+            Err(error) => todo!()
+        }
+    }
 }
 
 fn run_file() {
-
+    todo!()
 }
 
 fn main() {
-
     let num_args = env::args().len();
-    let mut chunk = bc::Chunk::new();
-
-    lc::compile("print(1+2*3)", &mut chunk);
 
     if num_args == 1 {
-        repl();
+        repl()
     } else if num_args == 2 {
-        run_file();
+        run_file()
     } else {
-        println!("Usage: rlox [path]");
+        println!("Usage: rlox [path]")
     }
 }
 
