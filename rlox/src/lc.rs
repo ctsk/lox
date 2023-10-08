@@ -329,31 +329,34 @@ impl<'src> Parser<'src> {
     }
 
     fn _expression(&mut self, chunk: &mut Chunk, min_prec: Precedence) {
-        match self.scanner.next().unwrap() {
-            Token {
-                ttype: TokenType::Minus,
-                span: _,
-            } => {
-                self._expression(chunk, Precedence::Unary);
-                chunk.add_op(Op::Negate, 0);
+        match self.scanner.next() {
+            None => panic!("Expected further tokens"),
+            Some(token) => match token {
+                Token {
+                    ttype: TokenType::Minus,
+                    span: _,
+                } => {
+                    self._expression(chunk, Precedence::Unary);
+                    chunk.add_op(Op::Negate, 0);
+                }
+                Token {
+                    ttype: TokenType::Number,
+                    span,
+                } => {
+                    match span.parse::<f64>() {
+                        Ok(c) => chunk.add_constant(c.into(), 0),
+                        _ => panic!("Could not parse number"),
+                    };
+                }
+                Token {
+                    ttype: TokenType::LeftParen,
+                    span: _,
+                } => {
+                    self._expression(chunk, Precedence::None);
+                    assert_eq!(self.scanner.next().unwrap().ttype, TokenType::RightParen)
+                }
+                _ => panic!("Expected '-' or number"),
             }
-            Token {
-                ttype: TokenType::Number,
-                span,
-            } => {
-                match span.parse::<f64>() {
-                    Ok(c) => chunk.add_constant(c.into(), 0),
-                    _ => panic!("Could not parse number"),
-                };
-            }
-            Token {
-                ttype: TokenType::LeftParen,
-                span: _,
-            } => {
-                self._expression(chunk, Precedence::None);
-                assert_eq!(self.scanner.next().unwrap().ttype, TokenType::RightParen)
-            }
-            _ => panic!("Expected '-' or number"),
         };
 
         while let Some(op) = self.scanner.next_if(|token| {
