@@ -1,3 +1,4 @@
+use crate::bc::Value::Number;
 use std::convert::From;
 use std::fmt;
 
@@ -12,20 +13,24 @@ pub enum Op {
     Divide,
 }
 
-#[derive(Copy, Clone, PartialEq)]
-pub struct Value {
-    pub val: f64,
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Value {
+    Nil,
+    Number(f64),
 }
 
-impl fmt::Debug for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.val)
+impl Value {
+    pub fn as_num(self) -> Option<f64> {
+        match self {
+            Number(val) => Some(val),
+            _ => None,
+        }
     }
 }
 
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
-        Value { val: value }
+        Number(value)
     }
 }
 
@@ -48,7 +53,7 @@ impl Chunk {
         Chunk {
             code,
             debug_info,
-            constants
+            constants,
         }
     }
 
@@ -65,13 +70,18 @@ impl Chunk {
 
     pub fn add_constant(&mut self, value: Value, line: usize) -> &mut Self {
         self.constants.push(value);
-        self.add_op(Op::Constant {offset: self.constants.len() - 1}, line)
+        self.add_op(
+            Op::Constant {
+                offset: self.constants.len() - 1,
+            },
+            line,
+        )
     }
 }
 
 pub struct NamedChunk {
     name: String,
-    chunk: Chunk
+    chunk: Chunk,
 }
 
 impl fmt::Debug for Chunk {
@@ -128,7 +138,7 @@ impl fmt::Debug for TraceInfo<'_> {
             }
             Op::Constant { offset } => {
                 f.debug_struct("Constant")
-                    .field("val", &chunk.constants[offset].val)
+                    .field("val", &chunk.constants[offset])
                     .finish()?;
                 write!(f, "")
             }

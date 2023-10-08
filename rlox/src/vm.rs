@@ -1,5 +1,6 @@
-use std::ops::Not;
 use crate::bc::{Chunk, Op, TraceInfo, Value};
+use std::ops::Not;
+use std::rc::Rc;
 
 pub struct VM {
     pub trace: bool,
@@ -7,10 +8,10 @@ pub struct VM {
     pc: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum VMError {
     Compile,
-    Runtime(&'static str, usize),
+    Runtime(Rc<str>, usize),
 }
 
 impl VM {
@@ -23,7 +24,14 @@ impl VM {
     }
 
     fn runtime_err(&self, msg: &'static str) -> VMError {
-        VMError::Runtime(msg, self.pc)
+        VMError::Runtime(msg.into(), self.pc)
+    }
+
+    fn type_err(&self, expected: &'static str, found: Value) -> VMError {
+        VMError::Runtime(
+            format!("Expected: {:}, Found: {:?}", expected, found).into(),
+            self.pc,
+        )
     }
 
     fn push(&mut self, value: Value) {
@@ -33,7 +41,14 @@ impl VM {
     fn pop(&mut self) -> Result<Value, VMError> {
         self.stack
             .pop()
-            .ok_or_else(|| self.runtime_err("Attempt to pop of empty stack."))
+            .ok_or(self.runtime_err("Attempt to pop of empty stack."))
+    }
+
+    fn pop_num(&mut self) -> Result<f64, VMError> {
+        let top_of_stack = self.pop()?;
+        top_of_stack
+            .as_num()
+            .ok_or(self.type_err("Number", top_of_stack))
     }
 
     pub fn run(&mut self, chunk: &Chunk) -> Result<Option<Value>, VMError> {
@@ -62,17 +77,17 @@ impl VM {
                 Op::Return => print!("{:?}", self.pop()?),
                 Op::Constant { offset } => self.push(chunk.constants[offset]),
                 Op::Negate => {
-                    let new_val = -self.pop()?.val;
-                    self.push(Value::from(new_val));
+                    let new_val = -self.pop_num()?;
+                    self.push(new_val.into());
                 }
                 Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                    let b = self.pop_num()?;
+                    let a = self.pop_num()?;
                     let r = match instr {
-                        Op::Add => Ok(a.val + b.val),
-                        Op::Subtract => Ok(a.val - b.val),
-                        Op::Multiply => Ok(a.val * b.val),
-                        Op::Divide => Ok(a.val / b.val),
+                        Op::Add => Ok(a + b),
+                        Op::Subtract => Ok(a - b),
+                        Op::Multiply => Ok(a * b),
+                        Op::Divide => Ok(a / b),
                         _ => Err(self.runtime_err("Op not implemented")),
                     }?;
                     self.push(r.into())
@@ -80,13 +95,18 @@ impl VM {
             }
         }
 
-        Ok(self.stack.is_empty().not().then_some(self.stack[self.stack.len() - 1]))
+        Ok(self
+            .stack
+            .is_empty()
+            .not()
+            .then_some(self.stack[self.stack.len() - 1]))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Chunk, Op, Value, VM};
+    use crate::vm::VMError;
 
     #[test]
     fn simple_arithmetic() {
@@ -119,5 +139,20 @@ mod tests {
         vm.run(&chunk).unwrap();
 
         assert_eq!(vm.stack[0], Value::from(3.1416));
+    }
+
+    #[test]
+    fn runtime_type_error() {
+        let chunk = Chunk::new_with(
+            vec![Op::Constant { offset: 0 }, Op::Negate],
+            vec![],
+            vec![Value::Nil],
+        );
+
+        let mut vm = VM::new();
+        assert_eq!(
+            vm.run(&chunk).unwrap_err(),
+            vm.type_err("Number", Value::Nil)
+        );
     }
 }

@@ -2,7 +2,7 @@ use std::convert::identity;
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-use crate::bc::{Chunk, Op};
+use crate::bc::{Chunk, Op, Value};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TokenType {
@@ -349,6 +349,12 @@ impl<'src> Parser<'src> {
                     };
                 }
                 Token {
+                    ttype: TokenType::Nil,
+                    span: _,
+                } => {
+                    chunk.add_constant(Value::Nil, 0);
+                }
+                Token {
                     ttype: TokenType::LeftParen,
                     span: _,
                 } => {
@@ -356,7 +362,7 @@ impl<'src> Parser<'src> {
                     assert_eq!(self.scanner.next().unwrap().ttype, TokenType::RightParen)
                 }
                 _ => panic!("Expected '-' or number"),
-            }
+            },
         };
 
         while let Some(op) = self.scanner.next_if(|token| {
@@ -475,7 +481,25 @@ mod tests {
                 Add,
             ],
             vec![],
-            vec![1., 1., 2., 1.].into_iter().map(Value::from).collect()
+            vec![1., 1., 2., 1.].into_iter().map(Value::from).collect(),
+        );
+
+        assert!(chunk.instr_eq(&expected));
+    }
+
+    #[test]
+    fn parse_nil() {
+        let source = "nil + nil";
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(scanner);
+        let mut chunk = Chunk::new();
+        parser.expression(&mut chunk);
+
+        use crate::bc::Op::*;
+        let expected = Chunk::new_with(
+            vec![Constant { offset: 0 }, Constant { offset: 1 }, Add],
+            vec![],
+            vec![Value::Nil, Value::Nil],
         );
 
         assert!(chunk.instr_eq(&expected));
