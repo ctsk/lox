@@ -7,22 +7,22 @@ use std::io;
 
 use bc::Chunk;
 use vm::VM;
-use crate::vm::VMError;
 
 fn repl() {
     let mut buffer = String::new();
 
     loop {
         match io::stdin().read_line(&mut buffer) {
-            Ok(n) => {
+            Ok(_) => {
                 let mut chunk = Chunk::new();
                 lc::compile(buffer.as_str(), &mut chunk);
                 let mut vm = VM::new();
                 let result = vm.run(&chunk);
                 println!("{:?}", result);
                 buffer.clear();
-            },
-            Err(error) => todo!()
+            }
+            Err(error) =>
+                println!("{:?}", error),
         }
     }
 }
