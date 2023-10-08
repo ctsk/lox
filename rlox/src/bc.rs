@@ -1,7 +1,7 @@
 use std::convert::From;
 use std::fmt;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Op {
     Return,
     Constant { offset: usize },
@@ -44,14 +44,28 @@ impl Chunk {
         }
     }
 
-    pub fn add_op(&mut self, op: Op, line: usize) {
-        self.code.push(op);
-        self.debug_info.push(line);
+    pub fn new_with(code: Vec<Op>, debug_info: Vec<usize>, constants: Vec<Value>) -> Self {
+        Chunk {
+            code,
+            debug_info,
+            constants
+        }
     }
 
-    pub fn add_constant(&mut self, value: Value) -> usize {
+    pub fn instr_eq(&self, other: &Chunk) -> bool {
+        self.code == other.code && self.constants == other.constants
+    }
+
+    pub fn add_op(&mut self, op: Op, line: usize) -> &mut Self {
+        self.code.push(op);
+        self.debug_info.push(line);
+
+        self
+    }
+
+    pub fn add_constant(&mut self, value: Value, line: usize) -> &mut Self {
         self.constants.push(value);
-        self.constants.len() - 1
+        self.add_op(Op::Constant {offset: self.constants.len() - 1}, line)
     }
 }
 
@@ -69,8 +83,8 @@ impl fmt::Debug for Chunk {
                 "{:?}",
                 TraceInfo {
                     offset: idx,
-                    op: op,
-                    chunk: &self
+                    op,
+                    chunk: self
                 }
             )?;
         }
@@ -82,9 +96,7 @@ impl fmt::Debug for Chunk {
 impl fmt::Debug for NamedChunk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         writeln!(f, "-*-*- {} -*-*-", self.name)?;
-        write!(f, "{:?}", self.chunk)?;
-
-        Ok(())
+        write!(f, "{:?}", self.chunk)
     }
 }
 

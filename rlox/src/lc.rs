@@ -6,8 +6,6 @@ use crate::bc::{Chunk, Op};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TokenType {
-    Eof,
-
     LeftParen,
     RightParen,
     LeftBrace,
@@ -111,7 +109,7 @@ impl<'src> Scanner<'src> {
     where
         P: Fn(char) -> bool,
     {
-        self.iter.next_if(|&(_, c)| p(c)).map(|(p, c)| p)
+        self.iter.next_if(|&(_, c)| p(c)).map(|(p, _c)| p)
     }
 
     fn consume_if_eq(&mut self, expected: char) -> Option<usize> {
@@ -132,7 +130,7 @@ impl<'src> Scanner<'src> {
     }
 
     fn consume_until_eq(&mut self, limit: char) -> Option<usize> {
-        while let Some((p, c)) = self.iter.next() {
+        for (p, c) in self.iter.by_ref() {
             if c == limit {
                 return Some(p);
             }
@@ -265,7 +263,6 @@ impl<'src> Iterator for Scanner<'src> {
 
 struct Parser<'src> {
     scanner: Peekable<Scanner<'src>>,
-    chunk: Chunk,
 }
 
 enum Associativity {
@@ -309,12 +306,7 @@ impl<'src> Parser<'src> {
     fn new(sc: Scanner<'src>) -> Self {
         Parser {
             scanner: sc.into_iter().peekable(),
-            chunk: Chunk::new(),
         }
-    }
-
-    fn result(&self) -> &Chunk {
-        return &self.chunk;
     }
 
     fn precedence(ttype: TokenType) -> Precedence {
@@ -322,7 +314,8 @@ impl<'src> Parser<'src> {
         match ttype {
             Plus | Minus => Precedence::Term,
             Star | Slash => Precedence::Factor,
-            _ => todo!(),
+            RightParen => Precedence::None,
+            _ => panic!("{:?}", ttype),
         }
     }
 
@@ -330,53 +323,55 @@ impl<'src> Parser<'src> {
         use Precedence::*;
         match prec {
             Term | Factor => Associativity::Left,
+            None => Associativity::Left,
             _ => Associativity::NonAssoc,
         }
     }
 
-    fn _expression(&mut self, min_prec: Precedence) {
+    fn _expression(&mut self, chunk: &mut Chunk, min_prec: Precedence) {
         match self.scanner.next().unwrap() {
             Token {
                 ttype: TokenType::Minus,
                 span: _,
             } => {
-                self._expression(Precedence::Unary);
-                self.chunk.add_op(Op::Negate, 0)
+                self._expression(chunk, Precedence::Unary);
+                chunk.add_op(Op::Negate, 0);
             }
             Token {
                 ttype: TokenType::Number,
                 span,
-            } => match span.parse::<f64>() {
-                Ok(c) => {
-                    let constant_pos = self.chunk.add_constant(c.into());
-                    self.chunk.add_op(Op::Constant { offset: constant_pos }, 0);
-                }
-                _ => panic!("Could not parse number"),
-            },
+            } => {
+                match span.parse::<f64>() {
+                    Ok(c) => chunk.add_constant(c.into(), 0),
+                    _ => panic!("Could not parse number"),
+                };
+            }
+            Token {
+                ttype: TokenType::LeftParen,
+                span: _,
+            } => {
+                self._expression(chunk, Precedence::None);
+                assert_eq!(self.scanner.next().unwrap().ttype, TokenType::RightParen)
+            }
             _ => panic!("Expected '-' or number"),
         };
 
-        loop {
-            let op = match self.scanner.next_if(|token| {
-                let op_prec = Self::precedence(token.ttype);
-                if op_prec == min_prec {
-                    match Self::associativity(min_prec) {
-                        Associativity::Left => false,
-                        Associativity::Right => true,
-                        Associativity::NonAssoc => {
-                            panic!("NonAssoc operation found in associative position")
-                        }
+        while let Some(op) = self.scanner.next_if(|token| {
+            let op_prec = Self::precedence(token.ttype);
+            if op_prec == min_prec {
+                match Self::associativity(min_prec) {
+                    Associativity::Left => false,
+                    Associativity::Right => true,
+                    Associativity::NonAssoc => {
+                        panic!("NonAssoc operation found in associative position")
                     }
-                } else {
-                    return op_prec > min_prec;
                 }
-            }) {
-                Some(token) => token,
-                None => break,
-            };
-
+            } else {
+                op_prec > min_prec
+            }
+        }) {
             // Generates code for rhs
-            self._expression(Self::precedence(op.ttype));
+            self._expression(chunk, Self::precedence(op.ttype));
 
             let op_decoded = match op.ttype {
                 TokenType::Plus => Op::Add,
@@ -386,22 +381,25 @@ impl<'src> Parser<'src> {
                 _ => todo!(),
             };
 
-            self.chunk.add_op(op_decoded, 0)
+            chunk.add_op(op_decoded, 0);
         }
     }
 
-    pub fn expression(&mut self) {
-        self._expression(Precedence::None);
+    pub fn expression(&mut self, chunk: &mut Chunk) {
+        self._expression(chunk, Precedence::None)
     }
 }
 
-pub fn compile(source: &str) {
+pub fn compile(source: &str, chunk: &mut Chunk) {
     let scanner = Scanner::new(source);
-    let parser = Parser::new(scanner);
+    let mut parser = Parser::new(scanner);
+    parser.expression(chunk);
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::bc::Value;
+
     use super::*;
 
     #[test]
@@ -456,12 +454,27 @@ mod tests {
 
     #[test]
     fn test_parser() {
-        let source = "1 + 1 * 2";
+        let source = "1 + 1 * (2 + 1)";
         let scanner = Scanner::new(source);
         let mut parser = Parser::new(scanner);
-        parser.expression();
-        let result = parser.result();
+        let mut chunk = Chunk::new();
+        parser.expression(&mut chunk);
 
-        print!("{:?}", result)
+        use crate::bc::Op::*;
+        let expected = Chunk::new_with(
+            vec![
+                Constant { offset: 0 },
+                Constant { offset: 1 },
+                Constant { offset: 2 },
+                Constant { offset: 3 },
+                Add,
+                Multiply,
+                Add,
+            ],
+            vec![],
+            vec![1., 1., 2., 1.].into_iter().map(Value::from).collect()
+        );
+
+        assert!(chunk.instr_eq(&expected));
     }
 }

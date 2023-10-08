@@ -22,7 +22,7 @@ impl VM {
     }
 
     fn runtime_err(&self, msg: &'static str) -> VMError {
-        return VMError::Runtime(msg, self.pc);
+        VMError::Runtime(msg, self.pc)
     }
 
     fn push(&mut self, value: Value) {
@@ -30,7 +30,9 @@ impl VM {
     }
 
     fn pop(&mut self) -> Result<Value, VMError> {
-        self.stack.pop().ok_or_else(|| self.runtime_err("Attempt to pop of empty stack."))
+        self.stack
+            .pop()
+            .ok_or_else(|| self.runtime_err("Attempt to pop of empty stack."))
     }
 
     pub fn run(&mut self, chunk: &Chunk) -> Result<(), VMError> {
@@ -50,7 +52,7 @@ impl VM {
                     TraceInfo {
                         offset: self.pc - 1,
                         op: instr,
-                        chunk: chunk
+                        chunk
                     }
                 );
             }
@@ -70,14 +72,14 @@ impl VM {
                         Op::Subtract => Ok(a.val - b.val),
                         Op::Multiply => Ok(a.val * b.val),
                         Op::Divide => Ok(a.val / b.val),
-                        _ => Err(self.runtime_err("Op not implemented"))
+                        _ => Err(self.runtime_err("Op not implemented")),
                     }?;
                     self.push(r.into())
                 }
             }
         }
 
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -87,30 +89,30 @@ mod tests {
 
     #[test]
     fn simple_arithmetic() {
-        let mut chunk = Chunk::new();
-        chunk.add_constant(Value::from(3.));
-        chunk.add_constant(Value::from(7.));
-        chunk.add_constant(Value::from(11.));
-        chunk.add_constant(Value::from(17.));
-        chunk.add_constant(Value::from(500.));
-        chunk.add_constant(Value::from(1000.));
-        chunk.add_constant(Value::from(250.));
-
-        chunk.add_op(Op::Constant { offset: 0 }, 1);
-        chunk.add_op(Op::Constant { offset: 1 }, 1);
-        chunk.add_op(Op::Multiply, 1);
-        chunk.add_op(Op::Constant { offset: 2 }, 1);
-        chunk.add_op(Op::Constant { offset: 3 }, 1);
-        chunk.add_op(Op::Multiply, 1);
-        chunk.add_op(Op::Multiply, 1);
-        chunk.add_op(Op::Negate, 1);
-        chunk.add_op(Op::Constant { offset: 4 }, 2);
-        chunk.add_op(Op::Constant { offset: 5 }, 2);
-        chunk.add_op(Op::Add, 2);
-        chunk.add_op(Op::Constant { offset: 6 }, 2);
-        chunk.add_op(Op::Subtract, 2);
-        chunk.add_op(Op::Negate, 2);
-        chunk.add_op(Op::Divide, 2);
+        let chunk = Chunk::new_with(
+            vec![
+                Op::Constant { offset: 0 },
+                Op::Constant { offset: 1 },
+                Op::Multiply,
+                Op::Constant { offset: 2 },
+                Op::Constant { offset: 3 },
+                Op::Multiply,
+                Op::Multiply,
+                Op::Negate,
+                Op::Constant { offset: 4 },
+                Op::Constant { offset: 5 },
+                Op::Add,
+                Op::Constant { offset: 6 },
+                Op::Subtract,
+                Op::Negate,
+                Op::Divide,
+            ],
+            vec![],
+            vec![3., 7., 11., 17., 500., 1000., 250.]
+                .into_iter()
+                .map(Value::from)
+                .collect(),
+        );
 
         let mut vm = VM::new();
         vm.run(&chunk).unwrap();
