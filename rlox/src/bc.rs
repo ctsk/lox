@@ -6,6 +6,7 @@ use std::fmt;
 pub enum Op {
     Return,
     Constant { offset: usize },
+    Nil,
     Negate,
     Add,
     Subtract,
@@ -133,7 +134,7 @@ impl fmt::Debug for TraceInfo<'_> {
         }?;
 
         match op {
-            Op::Return | Op::Negate | Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
+            Op::Return | Op::Nil | Op::Negate | Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
                 write!(f, "{:?}", op)
             }
             Op::Constant { offset } => {

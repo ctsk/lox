@@ -352,7 +352,7 @@ impl<'src> Parser<'src> {
                     ttype: TokenType::Nil,
                     span: _,
                 } => {
-                    chunk.add_constant(Value::Nil, 0);
+                    chunk.add_op(Op::Nil, 0);
                 }
                 Token {
                     ttype: TokenType::LeftParen,
@@ -497,9 +497,9 @@ mod tests {
 
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
-            vec![Constant { offset: 0 }, Constant { offset: 1 }, Add],
+            vec![Nil, Nil, Add],
             vec![],
-            vec![Value::Nil, Value::Nil],
+            vec![],
         );
 
         assert!(chunk.instr_eq(&expected));

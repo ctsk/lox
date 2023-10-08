@@ -76,6 +76,7 @@ impl VM {
             match instr {
                 Op::Return => print!("{:?}", self.pop()?),
                 Op::Constant { offset } => self.push(chunk.constants[offset]),
+                Op::Nil => self.push(Value::Nil),
                 Op::Negate => {
                     let new_val = -self.pop_num()?;
                     self.push(new_val.into());
@@ -144,9 +145,9 @@ mod tests {
     #[test]
     fn runtime_type_error() {
         let chunk = Chunk::new_with(
-            vec![Op::Constant { offset: 0 }, Op::Negate],
+            vec![Op::Nil, Op::Negate],
             vec![],
-            vec![Value::Nil],
+            vec![],
         );
 
         let mut vm = VM::new();
