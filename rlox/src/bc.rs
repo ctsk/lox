@@ -1,4 +1,4 @@
-use crate::bc::Value::Number;
+use crate::bc::Value::{Bool, Number};
 use std::convert::From;
 use std::fmt;
 
@@ -9,6 +9,7 @@ pub enum Op {
     Nil,
     True,
     False,
+    Not,
     Negate,
     Add,
     Subtract,
@@ -30,11 +31,24 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn as_bool(self) -> Option<bool> {
+        match self {
+            Bool(val) => Some(val),
+            _ => None,
+        }
+    }
 }
 
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
         Number(value)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Bool(value)
     }
 }
 
@@ -139,7 +153,8 @@ impl fmt::Debug for TraceInfo<'_> {
         match op {
             Op::Return | Op::Nil | Op::True
             | Op::False | Op::Negate | Op::Add
-            | Op::Subtract | Op::Multiply | Op::Divide => {
+            | Op::Subtract | Op::Multiply | Op::Divide
+            | Op::Not => {
                 write!(f, "{:?}", op)
             }
             Op::Constant { offset } => {

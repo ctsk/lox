@@ -333,11 +333,16 @@ impl<'src> Parser<'src> {
             None => panic!("Expected further tokens"),
             Some(token) => match token {
                 Token {
-                    ttype: TokenType::Minus,
+                    ttype: ttype@(TokenType::Minus | TokenType::Bang),
                     span: _,
                 } => {
                     self._expression(chunk, Precedence::Unary);
-                    chunk.add_op(Op::Negate, 0);
+                    let op = match ttype {
+                        TokenType::Minus => Op::Negate,
+                        TokenType::Bang => Op::Not,
+                        _ => unreachable!(),
+                    };
+                    chunk.add_op(op, 0);
                 }
                 Token {
                     ttype: TokenType::Number,
@@ -467,14 +472,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_parser() {
-        let source = "1 + 1 * (2 + 1)";
+    fn test_parse_expression(source: &str, expected: &Chunk) {
         let scanner = Scanner::new(source);
         let mut parser = Parser::new(scanner);
         let mut chunk = Chunk::new();
         parser.expression(&mut chunk);
+        assert!(chunk.instr_eq(expected));
+    }
 
+    #[test]
+    fn test_parser() {
+        let source = "1 + 1 * (2 + 1)";
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
             vec![
@@ -490,17 +498,12 @@ mod tests {
             vec![1., 1., 2., 1.].into_iter().map(Value::from).collect(),
         );
 
-        assert!(chunk.instr_eq(&expected));
+        test_parse_expression(source, &expected);
     }
 
     #[test]
     fn parse_nil() {
         let source = "nil + nil";
-        let scanner = Scanner::new(source);
-        let mut parser = Parser::new(scanner);
-        let mut chunk = Chunk::new();
-        parser.expression(&mut chunk);
-
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
             vec![Nil, Nil, Add],
@@ -508,17 +511,12 @@ mod tests {
             vec![],
         );
 
-        assert!(chunk.instr_eq(&expected));
+        test_parse_expression(source, &expected);
     }
 
     #[test]
     fn parse_bool_literals() {
         let source = "true * false";
-        let scanner = Scanner::new(source);
-        let mut parser = Parser::new(scanner);
-        let mut chunk = Chunk::new();
-        parser.expression(&mut chunk);
-
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
             vec![True, False, Multiply],
@@ -526,7 +524,19 @@ mod tests {
             vec![],
         );
 
-        assert!(chunk.instr_eq(&expected));
+        test_parse_expression(source, &expected);
+    }
 
+    #[test]
+    fn parse_bool_expression() {
+        let source = "!false";
+        use crate::bc::Op::*;
+        let expected = Chunk::new_with(
+            vec![False, Not],
+            vec![],
+            vec![],
+        );
+
+        test_parse_expression(source, &expected);
     }
 }

@@ -51,6 +51,13 @@ impl VM {
             .ok_or(self.type_err("Number", top_of_stack))
     }
 
+    fn pop_bool(&mut self) -> Result<bool, VMError> {
+        let top_of_stack = self.pop()?;
+        top_of_stack
+            .as_bool()
+            .ok_or(self.type_err("Boolean", top_of_stack))
+    }
+
     pub fn run(&mut self, chunk: &Chunk) -> Result<Option<Value>, VMError> {
         while self.pc < chunk.code.len() {
             let instr = chunk.code[self.pc];
@@ -81,6 +88,10 @@ impl VM {
                 Op::False => self.push(Value::Bool(false)),
                 Op::Negate => {
                     let new_val = -self.pop_num()?;
+                    self.push(new_val.into());
+                }
+                Op::Not => {
+                    let new_val = !self.pop_bool()?;
                     self.push(new_val.into());
                 }
                 Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
@@ -157,5 +168,18 @@ mod tests {
             vm.run(&chunk).unwrap_err(),
             vm.type_err("Number", Value::Nil)
         );
+    }
+
+    #[test]
+    fn simple_booleans() {
+        let chunk = Chunk::new_with(
+            vec![Op::False, Op::Not],
+            vec![],
+            vec![],
+        );
+        let mut vm = VM::new();
+        vm.run(&chunk).unwrap();
+
+        assert_eq!(vm.stack[0], true.into());
     }
 }
