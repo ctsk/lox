@@ -11,12 +11,15 @@ use vm::VM;
 fn repl() {
     let mut buffer = String::new();
 
+    let do_trace = env::var("LOX_TRACE").is_ok();
+
     loop {
         match io::stdin().read_line(&mut buffer) {
             Ok(_) => {
                 let mut chunk = Chunk::new();
                 lc::compile(buffer.as_str(), &mut chunk);
                 let mut vm = VM::new();
+                vm.set_trace(do_trace);
                 let result = vm.run(&chunk);
                 println!("{:?}", result);
                 buffer.clear();

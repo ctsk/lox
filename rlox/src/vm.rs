@@ -23,6 +23,10 @@ impl VM {
         }
     }
 
+    pub fn set_trace(&mut self, trace: bool) {
+        self.trace = trace;
+    }
+
     fn runtime_err(&self, msg: &'static str) -> VMError {
         VMError::Runtime(msg.into(), self.pc)
     }
