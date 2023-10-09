@@ -15,9 +15,12 @@ pub enum Op {
     Subtract,
     Multiply,
     Divide,
+    Equal,
+    Greater,
+    Less,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub enum Value {
     Nil,
     Bool(bool),
@@ -112,7 +115,7 @@ impl fmt::Debug for Chunk {
                 TraceInfo {
                     offset: idx,
                     op,
-                    chunk: self
+                    chunk: self,
                 }
             )?;
         }
@@ -151,18 +154,13 @@ impl fmt::Debug for TraceInfo<'_> {
         }?;
 
         match op {
-            Op::Return | Op::Nil | Op::True
-            | Op::False | Op::Negate | Op::Add
-            | Op::Subtract | Op::Multiply | Op::Divide
-            | Op::Not => {
-                write!(f, "{:?}", op)
-            }
             Op::Constant { offset } => {
                 f.debug_struct("Constant")
                     .field("val", &chunk.constants[offset])
                     .finish()?;
                 write!(f, "")
             }
+            _ => write!(f, "{:?}", op)
         }
     }
 }

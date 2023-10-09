@@ -95,19 +95,35 @@ impl VM {
                     self.push(new_val.into());
                 }
                 Op::Not => {
-                    let new_val = !self.pop_bool()?;
+                    let top_of_stack = self.pop()?;
+                    let new_val = match top_of_stack {
+                        Value::Nil => Ok(true),
+                        Value::Bool(val) => Ok(!val),
+                        _ => Err(self.type_err("Boolean or Nil", top_of_stack)),
+                    }?;
                     self.push(new_val.into());
                 }
                 Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
                     let b = self.pop_num()?;
                     let a = self.pop_num()?;
                     let r = match instr {
-                        Op::Add => Ok(a + b),
-                        Op::Subtract => Ok(a - b),
-                        Op::Multiply => Ok(a * b),
-                        Op::Divide => Ok(a / b),
-                        _ => Err(self.runtime_err("Op not implemented")),
-                    }?;
+                        Op::Add => a + b,
+                        Op::Subtract => a - b,
+                        Op::Multiply => a * b,
+                        Op::Divide => a / b,
+                        _ => unreachable!(),
+                    };
+                    self.push(r.into())
+                }
+                Op::Equal | Op::Greater | Op::Less => {
+                    let b = self.pop()?;
+                    let a  = self.pop()?;
+                    let r = match instr {
+                        Op::Equal => a == b,
+                        Op::Greater => a > b,
+                        Op::Less => a < b,
+                        _ => unreachable!(),
+                    };
                     self.push(r.into())
                 }
             }
@@ -123,6 +139,7 @@ impl VM {
 
 #[cfg(test)]
 mod tests {
+    use crate::bc::Op::Equal;
     use super::{Chunk, Op, Value, VM};
     use crate::vm::VMError;
 
@@ -177,7 +194,20 @@ mod tests {
     #[test]
     fn simple_booleans() {
         let chunk = Chunk::new_with(
-            vec![Op::False, Op::Not],
+            vec![Op::False, Op::Not, Op::False, Op::Not, Op::Equal],
+            vec![],
+            vec![],
+        );
+        let mut vm = VM::new();
+        vm.run(&chunk).unwrap();
+
+        assert_eq!(vm.stack[0], true.into());
+    }
+
+    #[test]
+    fn not_nil_is_true() {
+        let chunk = Chunk::new_with(
+            vec![Op::Nil, Op::Not],
             vec![],
             vec![],
         );

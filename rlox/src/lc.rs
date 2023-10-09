@@ -286,22 +286,6 @@ enum Precedence {
     Primary,
 }
 
-type ParseInfo = (Associativity, Precedence, Op, Option<Op>);
-fn get_info(ttype: TokenType) -> ParseInfo {
-    match ttype {
-        TokenType::Plus => (Associativity::Left, Precedence::Term, Op::Add, None),
-        TokenType::Minus => (
-            Associativity::Left,
-            Precedence::Term,
-            Op::Subtract,
-            Some(Op::Negate),
-        ),
-        TokenType::Slash => (Associativity::Left, Precedence::Factor, Op::Divide, None),
-        TokenType::Star => (Associativity::Left, Precedence::Factor, Op::Multiply, None),
-        _ => todo!(),
-    }
-}
-
 impl<'src> Parser<'src> {
     fn new(sc: Scanner<'src>) -> Self {
         Parser {
@@ -314,6 +298,8 @@ impl<'src> Parser<'src> {
         match ttype {
             Plus | Minus => Precedence::Term,
             Star | Slash => Precedence::Factor,
+            EqualEqual | BangEqual => Precedence::Equality,
+            Greater | GreaterEqual | Less | LessEqual => Precedence::Comparison,
             RightParen => Precedence::None,
             _ => panic!("{:?}", ttype),
         }
@@ -322,8 +308,9 @@ impl<'src> Parser<'src> {
     fn associativity(prec: Precedence) -> Associativity {
         use Precedence::*;
         match prec {
-            Term | Factor => Associativity::Left,
+            Term | Factor | Equality | Comparison => Associativity::Left,
             None => Associativity::Left,
+            Unary => Associativity::Right,
             _ => Associativity::NonAssoc,
         }
     }
@@ -393,15 +380,19 @@ impl<'src> Parser<'src> {
             // Generates code for rhs
             self._expression(chunk, Self::precedence(op.ttype));
 
-            let op_decoded = match op.ttype {
-                TokenType::Plus => Op::Add,
-                TokenType::Minus => Op::Subtract,
-                TokenType::Star => Op::Multiply,
-                TokenType::Slash => Op::Divide,
+            match op.ttype {
+                TokenType::Plus => chunk.add_op(Op::Add, 0),
+                TokenType::Minus => chunk.add_op(Op::Subtract, 0),
+                TokenType::Star => chunk.add_op(Op::Multiply, 0),
+                TokenType::Slash => chunk.add_op(Op::Divide, 0),
+                TokenType::EqualEqual => chunk.add_op(Op::Equal, 0),
+                TokenType::Greater => chunk.add_op(Op::Greater, 0),
+                TokenType::Less => chunk.add_op(Op::Less, 0),
+                TokenType::BangEqual => chunk.add_op(Op::Equal, 0).add_op(Op::Not, 0),
+                TokenType::GreaterEqual => chunk.add_op(Op::Less, 0).add_op(Op::Not, 0),
+                TokenType::LessEqual => chunk.add_op(Op::Greater, 0).add_op(Op::Not, 0),
                 _ => todo!(),
             };
-
-            chunk.add_op(op_decoded, 0);
         }
     }
 
@@ -529,10 +520,16 @@ mod tests {
 
     #[test]
     fn parse_bool_expression() {
-        let source = "!false";
+        let source = "!false == !true >= true <= false > true < false != true";
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
-            vec![False, Not],
+            vec![
+                False, Not, True, Not, True, Less, Not,
+                False, Greater, Not,
+                 True, Greater,
+                False, Less,
+                Equal,
+                 True, Equal, Not],
             vec![],
             vec![],
         );
