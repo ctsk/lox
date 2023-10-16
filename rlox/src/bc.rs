@@ -1,7 +1,7 @@
 use crate::bc::Value::{Bool, Number};
 use std::convert::From;
 use std::fmt;
-
+use std::fmt::{Debug};
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Op {
     Return,
@@ -19,26 +19,44 @@ pub enum Op {
     Greater,
     Less,
 }
+#[derive(Clone, Debug, PartialEq)]
+pub enum Object {
+    String(String)
+}
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Nil,
     Bool(bool),
     Number(f64),
+    Obj(Box<Object>)
 }
 
 impl Value {
-    pub fn as_num(self) -> Option<f64> {
+    pub fn as_num(&self) -> Option<f64> {
         match self {
-            Number(val) => Some(val),
+            &Number(val) => Some(val),
             _ => None,
         }
     }
 
-    pub fn as_bool(self) -> Option<bool> {
+    pub fn as_bool(&self) -> Option<bool> {
         match self {
-            Bool(val) => Some(val),
+            &Bool(val) => Some(val),
             _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Value::Obj(obj) => {
+                match obj.as_ref() {
+                    Object::String(string) => {
+                        Some(string.as_str())
+                    }
+                }
+            },
+            _ => None
         }
     }
 }
@@ -52,6 +70,18 @@ impl From<f64> for Value {
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Bool(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::Obj(Box::from(Object::String(value.to_string())))
+    }
+}
+
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value::Obj(Box::from(Object::String(value)))
     }
 }
 
@@ -162,5 +192,22 @@ impl fmt::Debug for TraceInfo<'_> {
             }
             _ => write!(f, "{:?}", op)
         }
+    }
+}
+
+mod tests {
+    use crate::bc::{Object, Value};
+
+    #[test]
+    fn string_value_equality() {
+        let s1 = "bla5";
+        let s2 = "bla6";
+
+        let v1 = Value::from(s1);
+        let v2 = Value::from(s2);
+        let v3 = Value::from(s2);
+
+        assert_ne!(v1, v2);
+        assert_eq!(v2, v3);
     }
 }

@@ -58,4 +58,14 @@ mod tests {
         let mut vm = VM::new();
         vm.run(&chunk).unwrap();
     }
+
+    #[test]
+    fn string_handling() {
+        let source = "\"hello\" + \" \" + \"world\"";
+        let mut chunk = Chunk::new();
+        compile(source, &mut chunk);
+        let mut vm = VM::new();
+        let v = vm.run(&chunk).unwrap();
+        assert_eq!(v, Some("hello world".into()));
+    }
 }

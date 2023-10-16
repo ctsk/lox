@@ -318,47 +318,39 @@ impl<'src> Parser<'src> {
     fn _expression(&mut self, chunk: &mut Chunk, min_prec: Precedence) {
         match self.scanner.next() {
             None => panic!("Expected further tokens"),
-            Some(token) => match token {
-                Token {
-                    ttype: ttype@(TokenType::Minus | TokenType::Bang),
-                    span: _,
-                } => {
+            Some(token) => match token.ttype {
+                TokenType::Minus | TokenType::Bang => {
                     self._expression(chunk, Precedence::Unary);
-                    let op = match ttype {
+                    let op = match token.ttype {
                         TokenType::Minus => Op::Negate,
                         TokenType::Bang => Op::Not,
                         _ => unreachable!(),
                     };
                     chunk.add_op(op, 0);
-                }
-                Token {
-                    ttype: TokenType::Number,
-                    span,
-                } => {
-                    match span.parse::<f64>() {
+                },
+                TokenType::Number => {
+                    match token.span.parse::<f64>() {
                         Ok(c) => chunk.add_constant(c.into(), 0),
                         _ => panic!("Could not parse number"),
                     };
-                }
-                Token {
-                    ttype: ttype@(TokenType::Nil | TokenType::True | TokenType::False),
-                    span: _,
-                } => {
-                    let op = match ttype {
+                },
+                TokenType::String => {
+                    let without_quotes = &token.span[1..(token.span.len() - 1)];
+                    chunk.add_constant(without_quotes.into(), 0);
+                },
+                TokenType::Nil | TokenType::True | TokenType::False => {
+                    let op = match token.ttype {
                         TokenType::Nil => Op::Nil,
                         TokenType::True => Op::True,
                         TokenType::False => Op::False,
                         _ => unreachable!()
                     };
                     chunk.add_op(op, 0);
-                }
-                Token {
-                    ttype: TokenType::LeftParen,
-                    span: _,
-                } => {
+                },
+                TokenType::LeftParen => {
                     self._expression(chunk, Precedence::None);
                     assert_eq!(self.scanner.next().unwrap().ttype, TokenType::RightParen)
-                }
+                },
                 _ => panic!("Expected '-' or number"),
             },
         };
@@ -461,6 +453,25 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn string_scan() {
+        let source = "\"hello world\"";
+        let scanner = Scanner::new(source);
+        let tokens: Vec<Token> = scanner.collect();
+
+        assert_eq!(
+            tokens,
+            vec![
+             Token {
+                 ttype: TokenType::String,
+                 span: &source[0..=12]
+             }
+            ]
+        );
+
+        assert_eq!(tokens[0].span, source);
     }
 
     fn test_parse_expression(source: &str, expected: &Chunk) {

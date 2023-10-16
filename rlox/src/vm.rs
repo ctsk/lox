@@ -1,4 +1,4 @@
-use crate::bc::{Chunk, Op, TraceInfo, Value};
+use crate::bc::{Object, Chunk, Op, TraceInfo, Value};
 use std::ops::Not;
 use std::rc::Rc;
 
@@ -55,13 +55,6 @@ impl VM {
             .ok_or(self.type_err("Number", top_of_stack))
     }
 
-    fn pop_bool(&mut self) -> Result<bool, VMError> {
-        let top_of_stack = self.pop()?;
-        top_of_stack
-            .as_bool()
-            .ok_or(self.type_err("Boolean", top_of_stack))
-    }
-
     pub fn run(&mut self, chunk: &Chunk) -> Result<Option<Value>, VMError> {
         while self.pc < chunk.code.len() {
             let instr = chunk.code[self.pc];
@@ -86,7 +79,7 @@ impl VM {
 
             match instr {
                 Op::Return => print!("{:?}", self.pop()?),
-                Op::Constant { offset } => self.push(chunk.constants[offset]),
+                Op::Constant { offset } => self.push(chunk.constants[offset].clone()),
                 Op::Nil => self.push(Value::Nil),
                 Op::True => self.push(Value::Bool(true)),
                 Op::False => self.push(Value::Bool(false)),
@@ -103,11 +96,34 @@ impl VM {
                     }?;
                     self.push(new_val.into());
                 }
-                Op::Add | Op::Subtract | Op::Multiply | Op::Divide => {
+                Op::Add => {
+                    let b = self.pop()?;
+                    match b {
+                        Value::Number(num) => {
+                            let a = self.pop_num()?;
+                            self.push(Value::from(num + a));
+                        }
+                        Value::Obj(ref obj) => {
+                            match b.as_str() {
+                                None => Err(self.type_err("String", b)),
+                                Some(str_b) => {
+                                    let a = self.pop()?;
+                                    match a.as_str() {
+                                        Some(str_a) => {
+                                            Ok(self.push(Value::from(str_a.to_owned() + str_b)))
+                                        },
+                                        None => Err(self.type_err("String", a))
+                                    }
+                                }
+                            }?
+                        }
+                        _ => todo!()
+                    };
+                }
+                Op::Subtract | Op::Multiply | Op::Divide => {
                     let b = self.pop_num()?;
                     let a = self.pop_num()?;
                     let r = match instr {
-                        Op::Add => a + b,
                         Op::Subtract => a - b,
                         Op::Multiply => a * b,
                         Op::Divide => a / b,
@@ -115,15 +131,20 @@ impl VM {
                     };
                     self.push(r.into())
                 }
-                Op::Equal | Op::Greater | Op::Less => {
-                    let b = self.pop()?;
-                    let a  = self.pop()?;
+                Op::Greater | Op::Less => {
+                    let b = self.pop_num()?;
+                    let a  = self.pop_num()?;
                     let r = match instr {
-                        Op::Equal => a == b,
                         Op::Greater => a > b,
                         Op::Less => a < b,
                         _ => unreachable!(),
                     };
+                    self.push(r.into())
+                }
+                Op::Equal => {
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    let r = a == b;
                     self.push(r.into())
                 }
             }
@@ -133,7 +154,7 @@ impl VM {
             .stack
             .is_empty()
             .not()
-            .then_some(self.stack[self.stack.len() - 1]))
+            .then_some(self.stack[self.stack.len() - 1].clone()))
     }
 }
 
