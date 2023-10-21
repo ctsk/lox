@@ -117,7 +117,7 @@ impl VM {
                                 }
                             }?
                         }
-                        _ => todo!()
+                        _ => return Err(VMError::Runtime("Operands of + need to be numbers or strings".into(), self.pc))
                     };
                 }
                 Op::Subtract | Op::Multiply | Op::Divide => {
