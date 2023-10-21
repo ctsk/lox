@@ -196,7 +196,7 @@ impl<'src> Scanner<'src> {
     }
 
     fn scan_comment(&mut self) {
-        self.consume_until_eq('"');
+        self.consume_until_eq('\n');
     }
 }
 
@@ -233,7 +233,7 @@ impl<'src> Iterator for Scanner<'src> {
                 '+' => make_simple_token(self, TokenType::Plus),
                 ';' => make_simple_token(self, TokenType::Semicolon),
                 '/' => match self.consume_if_eq('/') {
-                    Some(_) => self.next(),
+                    Some(_) => { self.scan_comment(); self.next() },
                     None => make_simple_token(self, TokenType::Slash),
                 },
                 '*' => make_simple_token(self, TokenType::Star),
@@ -450,6 +450,31 @@ mod tests {
                 Token {
                     ttype: TokenType::Semicolon,
                     span: &source[12..=12]
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn comment_scan() {
+        let source = "1\n2//comment\n3";
+        let scanner = Scanner::new(source);
+        let tokens: Vec<Token> = scanner.collect();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token {
+                    ttype: TokenType::Number,
+                    span: &source[0..=0]
+                },
+                Token {
+                    ttype: TokenType::Number,
+                    span: &source[2..=2]
+                },
+                Token {
+                    ttype: TokenType::Number,
+                    span: &source[13..=13]
                 }
             ]
         );
