@@ -1,7 +1,8 @@
 use crate::bc::Value::{Bool, Number};
 use std::convert::From;
 use std::fmt;
-use std::fmt::{Debug};
+use std::fmt::Debug;
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Op {
     Return,
@@ -196,10 +197,10 @@ impl fmt::Debug for TraceInfo<'_> {
 }
 
 mod tests {
-    use crate::bc::{Object, Value};
-
     #[test]
     fn string_value_equality() {
+        use crate::bc::Value;
+
         let s1 = "bla5";
         let s2 = "bla6";
 

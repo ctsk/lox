@@ -1,4 +1,4 @@
-use crate::bc::{Object, Chunk, Op, TraceInfo, Value};
+use crate::bc::{Chunk, Op, TraceInfo, Value};
 use std::ops::Not;
 use std::rc::Rc;
 
@@ -10,7 +10,7 @@ pub struct VM {
 
 #[derive(Debug, PartialEq)]
 pub enum VMError {
-    Compile,
+    // Compile,
     Runtime(Rc<str>, usize),
 }
 
@@ -103,14 +103,15 @@ impl VM {
                             let a = self.pop_num()?;
                             self.push(Value::from(num + a));
                         }
-                        Value::Obj(ref obj) => {
+                        Value::Obj(ref _obj) => {
                             match b.as_str() {
                                 None => Err(self.type_err("String", b)),
                                 Some(str_b) => {
                                     let a = self.pop()?;
                                     match a.as_str() {
                                         Some(str_a) => {
-                                            Ok(self.push(Value::from(str_a.to_owned() + str_b)))
+                                            self.push(Value::from(str_a.to_owned() + str_b));
+                                            Ok(())
                                         },
                                         None => Err(self.type_err("String", a))
                                     }
@@ -160,9 +161,7 @@ impl VM {
 
 #[cfg(test)]
 mod tests {
-    use crate::bc::Op::Equal;
     use super::{Chunk, Op, Value, VM};
-    use crate::vm::VMError;
 
     #[test]
     fn simple_arithmetic() {

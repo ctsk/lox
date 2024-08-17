@@ -2,7 +2,7 @@ use std::convert::identity;
 use std::iter::Peekable;
 use std::str::CharIndices;
 
-use crate::bc::{Chunk, Op, Value};
+use crate::bc::{Chunk, Op};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TokenType {
@@ -301,7 +301,7 @@ impl<'src> Parser<'src> {
             EqualEqual | BangEqual => Precedence::Equality,
             Greater | GreaterEqual | Less | LessEqual => Precedence::Comparison,
             RightParen => Precedence::None,
-            _ => panic!("{:?}", ttype),
+            _ => panic!("Undefined precedence: {:?}", ttype),
         }
     }
 
