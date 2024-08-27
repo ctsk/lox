@@ -1,5 +1,6 @@
 use crate::bc::{Chunk, Op, TraceInfo, Value};
-use std::ops::Not;
+use crate::gc::{concat_string, GcHandle, ObjectType};
+use std::collections::LinkedList;
 use std::rc::Rc;
 
 pub struct VM {
@@ -55,7 +56,9 @@ impl VM {
             .ok_or(self.type_err("Number", top_of_stack))
     }
 
-    pub fn run(&mut self, chunk: &Chunk) -> Result<Option<Value>, VMError> {
+    pub fn run(&mut self, chunk: &Chunk) -> Result<Option<(Value, LinkedList<GcHandle>)>, VMError> {
+        let mut allocations: LinkedList<GcHandle> = LinkedList::new();
+
         while self.pc < chunk.code.len() {
             let instr = chunk.code[self.pc];
             self.pc += 1;
@@ -79,7 +82,7 @@ impl VM {
 
             match instr {
                 Op::Return => print!("{:?}", self.pop()?),
-                Op::Constant { offset } => self.push(chunk.constants[offset].clone()),
+                Op::Constant { offset } => self.push(chunk.constants[offset as usize].clone()),
                 Op::Nil => self.push(Value::Nil),
                 Op::True => self.push(Value::Bool(true)),
                 Op::False => self.push(Value::Bool(false)),
@@ -103,20 +106,29 @@ impl VM {
                             let a = self.pop_num()?;
                             self.push(Value::from(num + a));
                         }
-                        Value::Obj(ref _obj) => {
-                            match b.as_str() {
-                                None => Err(self.type_err("String", b)),
-                                Some(str_b) => {
+                        Value::Obj(b) => {
+                            match b.get_otype() {
+                                ObjectType::String => {
                                     let a = self.pop()?;
-                                    match a.as_str() {
-                                        Some(str_a) => {
-                                            self.push(Value::from(str_a.to_owned() + str_b));
-                                            Ok(())
+                                    match a {
+                                        Value::Obj(a) => {
+                                            match a.get_otype() {
+                                                ObjectType::String => {
+                                                    let new_obj = unsafe {
+                                                        concat_string(a, b).unwrap()
+                                                    };
+                                                    self.push(Value::from(new_obj.get_object()));
+                                                    allocations.push_front(new_obj);
+                                                    Ok(())
+                                                },
+                                            }
                                         },
-                                        None => Err(self.type_err("String", a))
-                                    }
-                                }
-                            }?
+                                        _ => {
+                                            Err(self.type_err("String", a))
+                                        }
+                                    }?
+                                },
+                            }
                         }
                         _ => return Err(VMError::Runtime("Operands of + need to be numbers or strings".into(), self.pc))
                     };
@@ -151,17 +163,24 @@ impl VM {
             }
         }
 
-        Ok(self
-            .stack
-            .is_empty()
-            .not()
-            .then_some(self.stack[self.stack.len() - 1].clone()))
+        match self.stack.pop() {
+            None => Ok(None),
+            Some(result_value) => {
+                let escaping_allocs = allocations.into_iter().filter(
+                    |handle| Value::from(handle.get_object()) == result_value
+                ).collect();
+
+                Ok(Some((result_value, escaping_allocs)))
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Chunk, Op, Value, VM};
+    use std::collections::LinkedList;
+
+    use super::{Chunk, Op, VMError, Value, VM};
 
     #[test]
     fn simple_arithmetic() {
@@ -188,12 +207,15 @@ mod tests {
                 .into_iter()
                 .map(Value::from)
                 .collect(),
+            LinkedList::new(),
         );
 
         let mut vm = VM::new();
-        vm.run(&chunk).unwrap();
+        let (result, allocs) = vm.run(&chunk).unwrap().unwrap();
 
-        assert_eq!(vm.stack[0], Value::from(3.1416));
+        assert_eq!(result, Value::from(3.1416));
+        assert!(vm.stack.is_empty());
+        assert!(allocs.is_empty());
     }
 
     #[test]
@@ -202,6 +224,7 @@ mod tests {
             vec![Op::Nil, Op::Negate],
             vec![],
             vec![],
+            LinkedList::new(),
         );
 
         let mut vm = VM::new();
@@ -212,16 +235,21 @@ mod tests {
     }
 
     #[test]
-    fn simple_booleans() {
+    fn simple_booleans() -> Result<(), VMError> {
         let chunk = Chunk::new_with(
             vec![Op::False, Op::Not, Op::False, Op::Not, Op::Equal],
             vec![],
             vec![],
+            LinkedList::new(),
         );
         let mut vm = VM::new();
-        vm.run(&chunk).unwrap();
+        let (result, allocs) = vm.run(&chunk)?.unwrap();
 
-        assert_eq!(vm.stack[0], true.into());
+        assert_eq!(result, true.into());
+        assert!(vm.stack.is_empty());
+        assert!(allocs.is_empty());
+
+        Ok(())
     }
 
     #[test]
@@ -230,10 +258,13 @@ mod tests {
             vec![Op::Nil, Op::Not],
             vec![],
             vec![],
+            LinkedList::new(),
         );
         let mut vm = VM::new();
-        vm.run(&chunk).unwrap();
+        let (result, allocs) = vm.run(&chunk).unwrap().unwrap();
 
-        assert_eq!(vm.stack[0], true.into());
+        assert_eq!(result, true.into());
+        assert!(vm.stack.is_empty());
+        assert!(allocs.is_empty());
     }
 }

@@ -1,4 +1,5 @@
-use crate::bc::Value::{Bool, Number};
+use crate::gc::{GcHandle, Object};
+use std::collections::LinkedList;
 use std::convert::From;
 use std::fmt;
 use std::fmt::Debug;
@@ -6,7 +7,7 @@ use std::fmt::Debug;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Op {
     Return,
-    Constant { offset: usize },
+    Constant { offset: u8 },
     Nil,
     True,
     False,
@@ -20,69 +21,46 @@ pub enum Op {
     Greater,
     Less,
 }
-#[derive(Clone, Debug, PartialEq)]
-pub enum Object {
-    String(String)
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Nil,
     Bool(bool),
     Number(f64),
-    Obj(Box<Object>)
+    Obj(Object),
 }
 
 impl Value {
     pub fn as_num(&self) -> Option<f64> {
         match self {
-            &Number(val) => Some(val),
+            &Value::Number(val) => Some(val),
             _ => None,
         }
     }
 
     pub fn as_bool(&self) -> Option<bool> {
         match self {
-            &Bool(val) => Some(val),
+            &Value::Bool(val) => Some(val),
             _ => None,
-        }
-    }
-
-    pub fn as_str(&self) -> Option<&str> {
-        match self {
-            Value::Obj(obj) => {
-                match obj.as_ref() {
-                    Object::String(string) => {
-                        Some(string.as_str())
-                    }
-                }
-            },
-            _ => None
         }
     }
 }
 
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
-        Number(value)
+        Value::Number(value)
     }
 }
 
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
-        Bool(value)
+        Value::Bool(value)
     }
 }
 
-impl From<&str> for Value {
-    fn from(value: &str) -> Self {
-        Value::Obj(Box::from(Object::String(value.to_string())))
-    }
-}
-
-impl From<String> for Value {
-    fn from(value: String) -> Self {
-        Value::Obj(Box::from(Object::String(value)))
+impl From<Object> for Value {
+    fn from(value: Object) -> Self {
+        Value::Obj(value)
     }
 }
 
@@ -90,6 +68,7 @@ pub struct Chunk {
     pub code: Vec<Op>,
     pub debug_info: Vec<usize>,
     pub constants: Vec<Value>,
+    pub allocations: LinkedList<GcHandle>,
 }
 
 impl Chunk {
@@ -98,14 +77,16 @@ impl Chunk {
             code: Vec::new(),
             debug_info: Vec::new(),
             constants: Vec::new(),
+            allocations: LinkedList::new()
         }
     }
 
-    pub fn new_with(code: Vec<Op>, debug_info: Vec<usize>, constants: Vec<Value>) -> Self {
+    pub fn new_with(code: Vec<Op>, debug_info: Vec<usize>, constants: Vec<Value>, allocations: LinkedList<GcHandle>) -> Self {
         Chunk {
             code,
             debug_info,
             constants,
+            allocations
         }
     }
 
@@ -124,7 +105,7 @@ impl Chunk {
         self.constants.push(value);
         self.add_op(
             Op::Constant {
-                offset: self.constants.len() - 1,
+                offset: self.constants.len() as u8 - 1,
             },
             line,
         )
@@ -187,7 +168,7 @@ impl fmt::Debug for TraceInfo<'_> {
         match op {
             Op::Constant { offset } => {
                 f.debug_struct("Constant")
-                    .field("val", &chunk.constants[offset])
+                    .field("val", &chunk.constants[offset as usize])
                     .finish()?;
                 write!(f, "")
             }
@@ -197,18 +178,27 @@ impl fmt::Debug for TraceInfo<'_> {
 }
 
 mod tests {
+
     #[test]
     fn string_value_equality() {
+        use crate::gc::allocate_string;
         use crate::bc::Value;
 
         let s1 = "bla5";
         let s2 = "bla6";
 
-        let v1 = Value::from(s1);
-        let v2 = Value::from(s2);
-        let v3 = Value::from(s2);
+        unsafe {
+            let o1 = allocate_string(s1).unwrap();
+            let o2 = allocate_string(s2).unwrap();
+            let o3 = allocate_string(s2).unwrap();
+            let v1 = Value::from(o1.get_object());
+            let v2 = Value::from(o2.get_object());
+            let v3 = Value::from(o3.get_object());
+            let v4 = v2.clone();
 
-        assert_ne!(v1, v2);
-        assert_eq!(v2, v3);
+            assert_ne!(v1, v2);
+            assert_eq!(v2, v3);
+            assert_eq!(v2, v4);
+        }
     }
 }

@@ -1,6 +1,7 @@
 mod bc;
 mod lc;
 mod vm;
+mod gc;
 
 use std::env;
 use std::io;
@@ -48,7 +49,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::{bc::Chunk, lc::compile, vm::VM};
+    use crate::{bc::{Chunk, Value}, gc::allocate_string, lc::compile, vm::VM};
 
     #[test]
     fn test_compile_and_run_pi_math() {
@@ -60,12 +61,14 @@ mod tests {
     }
 
     #[test]
-    fn string_handling() {
+    fn string_concatenation() {
         let source = "\"hello\" + \" \" + \"world\"";
         let mut chunk = Chunk::new();
         compile(source, &mut chunk);
         let mut vm = VM::new();
-        let v = vm.run(&chunk).unwrap();
-        assert_eq!(v, Some("hello world".into()));
+        let (result, _allocs) = vm.run(&chunk).unwrap().unwrap();
+        let target_alloc = unsafe { allocate_string("hello world").unwrap() };
+        let target = Value::from(target_alloc.get_object());
+        assert_eq!(result, target);
     }
 }

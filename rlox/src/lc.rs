@@ -1,8 +1,9 @@
-use std::convert::identity;
+use std::{collections::HashMap, convert::identity};
 use std::iter::Peekable;
 use std::str::CharIndices;
 
 use crate::bc::{Chunk, Op};
+use crate::gc::allocate_string;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TokenType {
@@ -263,6 +264,7 @@ impl<'src> Iterator for Scanner<'src> {
 
 struct Parser<'src> {
     scanner: Peekable<Scanner<'src>>,
+    intern_table: HashMap<&'src str, u8>,
 }
 
 enum Associativity {
@@ -290,6 +292,7 @@ impl<'src> Parser<'src> {
     fn new(sc: Scanner<'src>) -> Self {
         Parser {
             scanner: sc.into_iter().peekable(),
+            intern_table: HashMap::new(),
         }
     }
 
@@ -336,7 +339,21 @@ impl<'src> Parser<'src> {
                 },
                 TokenType::String => {
                     let without_quotes = &token.span[1..(token.span.len() - 1)];
-                    chunk.add_constant(without_quotes.into(), 0);
+                    match self.intern_table.get(without_quotes) {
+                        Some(&index) => {
+                            chunk.add_op(
+                                Op::Constant {
+                                    offset: index,
+                                },
+                                0
+                            );
+                        },
+                        None => {
+                            let object = unsafe { allocate_string(without_quotes) }.unwrap();
+                            chunk.add_constant(object.get_object().into(), 0);
+                            chunk.allocations.push_front(object);
+                        },
+                    };
                 },
                 TokenType::Nil | TokenType::True | TokenType::False => {
                     let op = match token.ttype {
@@ -401,6 +418,8 @@ pub fn compile(source: &str, chunk: &mut Chunk) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::LinkedList;
+
     use crate::bc::Value;
 
     use super::*;
@@ -523,6 +542,7 @@ mod tests {
             ],
             vec![],
             vec![1., 1., 2., 1.].into_iter().map(Value::from).collect(),
+            LinkedList::new(),
         );
 
         test_parse_expression(source, &expected);
@@ -536,6 +556,7 @@ mod tests {
             vec![Nil, Nil, Add],
             vec![],
             vec![],
+            LinkedList::new(),
         );
 
         test_parse_expression(source, &expected);
@@ -549,6 +570,7 @@ mod tests {
             vec![True, False, Multiply],
             vec![],
             vec![],
+            LinkedList::new(),
         );
 
         test_parse_expression(source, &expected);
@@ -568,6 +590,7 @@ mod tests {
                  True, Equal, Not],
             vec![],
             vec![],
+            LinkedList::new(),
         );
 
         test_parse_expression(source, &expected);
