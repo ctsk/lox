@@ -351,6 +351,7 @@ impl<'src> Parser<'src> {
                         None => {
                             let object = unsafe { allocate_string(without_quotes) }.unwrap();
                             chunk.add_constant(object.get_object().into(), 0);
+                            self.intern_table.insert(without_quotes, chunk.constants.len() as u8 - 1);
                             chunk.allocations.push_front(object);
                         },
                     };
@@ -595,4 +596,17 @@ mod tests {
 
         test_parse_expression(source, &expected);
     }
+
+    #[test]
+    fn string_interning() {
+        let source = "\"ho\" + \"ho\" + \"ho\"";
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(scanner);
+        let mut chunk = Chunk::new();
+        parser.expression(&mut chunk);
+
+        assert_eq!(chunk.allocations.len(), 1);
+        assert_eq!(chunk.constants.len(), 1);
+    }
+
 }

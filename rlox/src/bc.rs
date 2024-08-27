@@ -44,6 +44,13 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn as_obj(&self) -> Option<Object> {
+        match self {
+            &Value::Obj(val) => Some(val),
+            _ => None,
+        }
+    }
 }
 
 impl From<f64> for Value {
