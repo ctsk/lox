@@ -1,6 +1,6 @@
-use std::{collections::HashMap, convert::identity};
 use std::iter::Peekable;
 use std::str::CharIndices;
+use std::{collections::HashMap, convert::identity};
 
 use crate::bc::{Chunk, Op};
 use crate::gc::allocate_string;
@@ -234,7 +234,10 @@ impl<'src> Iterator for Scanner<'src> {
                 '+' => make_simple_token(self, TokenType::Plus),
                 ';' => make_simple_token(self, TokenType::Semicolon),
                 '/' => match self.consume_if_eq('/') {
-                    Some(_) => { self.scan_comment(); self.next() },
+                    Some(_) => {
+                        self.scan_comment();
+                        self.next()
+                    }
                     None => make_simple_token(self, TokenType::Slash),
                 },
                 '*' => make_simple_token(self, TokenType::Star),
@@ -288,7 +291,14 @@ enum Precedence {
     Primary,
 }
 
+enum ParseError<'src> {
+    InvalidNumber(Token<'src>)
+}
+
+type Result<'src, T> = std::result::Result<T, ParseError<'src>>;
+
 impl<'src> Parser<'src> {
+
     fn new(sc: Scanner<'src>) -> Self {
         Parser {
             scanner: sc.into_iter().peekable(),
@@ -330,50 +340,50 @@ impl<'src> Parser<'src> {
                         _ => unreachable!(),
                     };
                     chunk.add_op(op, 0);
-                },
+                }
                 TokenType::Number => {
                     match token.span.parse::<f64>() {
                         Ok(c) => chunk.add_constant(c.into(), 0),
                         _ => panic!("Could not parse number"),
                     };
-                },
+                }
                 TokenType::String => {
                     let without_quotes = &token.span[1..(token.span.len() - 1)];
                     match self.intern_table.get(without_quotes) {
                         Some(&index) => {
-                            chunk.add_op(
-                                Op::Constant {
-                                    offset: index,
-                                },
-                                0
-                            );
-                        },
+                            chunk.add_op(Op::Constant { offset: index }, 0);
+                        }
                         None => {
                             let object = unsafe { allocate_string(without_quotes) }.unwrap();
                             chunk.add_constant(object.get_object().into(), 0);
-                            self.intern_table.insert(without_quotes, chunk.constants.len() as u8 - 1);
+                            self.intern_table
+                                .insert(without_quotes, chunk.constants.len() as u8 - 1);
                             chunk.allocations.push_front(object);
-                        },
+                        }
                     };
-                },
+                }
                 TokenType::Nil | TokenType::True | TokenType::False => {
                     let op = match token.ttype {
                         TokenType::Nil => Op::Nil,
                         TokenType::True => Op::True,
                         TokenType::False => Op::False,
-                        _ => unreachable!()
+                        _ => unreachable!(),
                     };
                     chunk.add_op(op, 0);
-                },
+                }
                 TokenType::LeftParen => {
                     self._expression(chunk, Precedence::None);
                     assert_eq!(self.scanner.next().unwrap().ttype, TokenType::RightParen)
-                },
+                }
                 _ => panic!("Expected '-' or number"),
             },
         };
 
         while let Some(op) = self.scanner.next_if(|token| {
+            if token.ttype == TokenType::Semicolon {
+                return false;
+            }
+
             let op_prec = Self::precedence(token.ttype);
             if op_prec == min_prec {
                 match Self::associativity(min_prec) {
@@ -404,17 +414,62 @@ impl<'src> Parser<'src> {
                 _ => todo!(),
             };
         }
+
     }
 
     pub fn expression(&mut self, chunk: &mut Chunk) {
         self._expression(chunk, Precedence::None)
     }
+
+    pub fn must_consume(&mut self, ttype: TokenType) -> Option<Token> {
+        self.scanner.next_if(
+            |tok| tok.ttype == ttype
+        ).or_else(
+            || panic!()
+        )
+    }
+
+    pub fn print_statement(&mut self, chunk: &mut Chunk) {
+        self.must_consume(TokenType::Print).unwrap();
+        self.expression(chunk);
+        chunk.add_op(Op::Print, 0);
+        self.must_consume(TokenType::Semicolon).unwrap();
+    }
+
+    pub fn expr_statement(&mut self, chunk: &mut Chunk) {
+        self.expression(chunk);
+        self.must_consume(TokenType::Semicolon).unwrap();
+    }
+
+    pub fn statement(&mut self, chunk: &mut Chunk) {
+        match self.scanner.peek().unwrap().ttype {
+            TokenType::Print => self.print_statement(chunk),
+            _ => self.expr_statement(chunk),
+        }
+    }
+
+    pub fn declaration(&mut self, chunk: &mut Chunk) {
+        self.statement(chunk);
+    }
+
+    pub fn compile(&mut self, chunk: &mut Chunk) {
+        while let Some(_) = self.scanner.peek() {
+            self.declaration(chunk);
+        }
+    }
+}
+
+#[cfg(test)]
+pub fn compile_expr(source: &str, chunk: &mut Chunk) {
+    let scanner = Scanner::new(source);
+    let mut parser = Parser::new(scanner);
+    parser.expression(chunk);
 }
 
 pub fn compile(source: &str, chunk: &mut Chunk) {
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
-    parser.expression(chunk);
+    parser.compile(chunk);
 }
 
 #[cfg(test)]
@@ -508,12 +563,10 @@ mod tests {
 
         assert_eq!(
             tokens,
-            vec![
-             Token {
-                 ttype: TokenType::String,
-                 span: &source[0..=12]
-             }
-            ]
+            vec![Token {
+                ttype: TokenType::String,
+                span: &source[0..=12]
+            }]
         );
 
         assert_eq!(tokens[0].span, source);
@@ -524,6 +577,14 @@ mod tests {
         let mut parser = Parser::new(scanner);
         let mut chunk = Chunk::new();
         parser.expression(&mut chunk);
+        assert!(chunk.instr_eq(expected));
+    }
+
+    fn test_parse_program(source: &str, expected: &Chunk) {
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(scanner);
+        let mut chunk = Chunk::new();
+        parser.compile(&mut chunk);
         assert!(chunk.instr_eq(expected));
     }
 
@@ -553,12 +614,7 @@ mod tests {
     fn parse_nil() {
         let source = "nil + nil";
         use crate::bc::Op::*;
-        let expected = Chunk::new_with(
-            vec![Nil, Nil, Add],
-            vec![],
-            vec![],
-            LinkedList::new(),
-        );
+        let expected = Chunk::new_with(vec![Nil, Nil, Add], vec![], vec![], LinkedList::new());
 
         test_parse_expression(source, &expected);
     }
@@ -583,12 +639,9 @@ mod tests {
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
             vec![
-                False, Not, True, Not, True, Less, Not,
-                False, Greater, Not,
-                 True, Greater,
-                False, Less,
-                Equal,
-                 True, Equal, Not],
+                False, Not, True, Not, True, Less, Not, False, Greater, Not, True, Greater, False,
+                Less, Equal, True, Equal, Not,
+            ],
             vec![],
             vec![],
             LinkedList::new(),
@@ -609,4 +662,49 @@ mod tests {
         assert_eq!(chunk.constants.len(), 1);
     }
 
+    #[test]
+    fn basic_print_statement() {
+        let source = "print 1 + 1;";
+        use crate::bc::Op::*;
+        let expected = Chunk::new_with(
+            vec![Constant { offset: 0 }, Constant { offset: 1 }, Add, Print],
+            vec![],
+            vec![Value::from(1.0), Value::from(1.0)],
+            LinkedList::new(),
+        );
+
+        test_parse_program(source, &expected);
+    }
+
+    #[test]
+    fn basic_print_string_statement() {
+        let source = "print \"string\";";
+        let allocation = unsafe { allocate_string("string").unwrap() };
+        let object = allocation.get_object();
+        let mut allocations = LinkedList::new();
+        allocations.push_front(allocation);
+        use crate::bc::Op::*;
+        let expected = Chunk::new_with(
+            vec![Constant { offset: 0 }, Print],
+            vec![],
+            vec![Value::from(object)],
+            allocations,
+        );
+
+        test_parse_program(source, &expected);
+    }
+
+    #[test]
+    fn basic_expr_statement() {
+        let source = "1 / 1;";
+        use crate::bc::Op::*;
+        let expected = Chunk::new_with(
+            vec![Constant { offset: 0 }, Constant { offset: 1 }, Divide],
+            vec![],
+            vec![Value::from(1.0), Value::from(1.0)],
+            LinkedList::new(),
+        );
+
+        test_parse_program(source, &expected);
+    }
 }

@@ -1,8 +1,8 @@
-use crate::gc::{GcHandle, Object};
+use crate::gc::{GcHandle, Object, ObjectType};
 use std::collections::LinkedList;
 use std::convert::From;
-use std::fmt;
 use std::fmt::Debug;
+use std::fmt::{self, Display};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Op {
@@ -20,6 +20,8 @@ pub enum Op {
     Equal,
     Greater,
     Less,
+
+    Print,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -71,6 +73,28 @@ impl From<Object> for Value {
     }
 }
 
+impl Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Nil => write!(f, "nil"),
+            Value::Bool(true) => write!(f, "true"),
+            Value::Bool(false) => write!(f, "false"),
+            Value::Number(number) => {
+                let stringified = number.to_string();
+                match stringified.strip_suffix(".0") {
+                    Some(integer) => write!(f, "{}", integer),
+                    None => write!(f, "{}", stringified),
+                }
+            }
+            Value::Obj(object) => match object.get_otype() {
+                ObjectType::String => {
+                    write!(f, "{}", object)
+                }
+            },
+        }
+    }
+}
+
 pub struct Chunk {
     pub code: Vec<Op>,
     pub debug_info: Vec<usize>,
@@ -84,16 +108,21 @@ impl Chunk {
             code: Vec::new(),
             debug_info: Vec::new(),
             constants: Vec::new(),
-            allocations: LinkedList::new()
+            allocations: LinkedList::new(),
         }
     }
 
-    pub fn new_with(code: Vec<Op>, debug_info: Vec<usize>, constants: Vec<Value>, allocations: LinkedList<GcHandle>) -> Self {
+    pub fn new_with(
+        code: Vec<Op>,
+        debug_info: Vec<usize>,
+        constants: Vec<Value>,
+        allocations: LinkedList<GcHandle>,
+    ) -> Self {
         Chunk {
             code,
             debug_info,
             constants,
-            allocations
+            allocations,
         }
     }
 
@@ -179,7 +208,7 @@ impl fmt::Debug for TraceInfo<'_> {
                     .finish()?;
                 write!(f, "")
             }
-            _ => write!(f, "{:?}", op)
+            _ => write!(f, "{:?}", op),
         }
     }
 }
@@ -188,8 +217,8 @@ mod tests {
 
     #[test]
     fn string_value_equality() {
-        use crate::gc::allocate_string;
         use crate::bc::Value;
+        use crate::gc::allocate_string;
 
         let s1 = "bla5";
         let s2 = "bla6";

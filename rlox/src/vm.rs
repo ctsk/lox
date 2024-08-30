@@ -1,6 +1,7 @@
 use crate::bc::{Chunk, Op, TraceInfo, Value};
 use crate::gc::{concat_string, GcHandle, ObjectType};
 use std::collections::LinkedList;
+use std::io;
 use std::rc::Rc;
 
 pub struct VM {
@@ -56,7 +57,18 @@ impl VM {
             .ok_or(self.type_err("Number", top_of_stack))
     }
 
-    pub fn run(&mut self, chunk: &Chunk) -> Result<Option<(Value, LinkedList<GcHandle>)>, VMError> {
+    pub fn stdrun(
+        &mut self,
+        chunk: &Chunk,
+    ) -> Result<Option<(Value, LinkedList<GcHandle>)>, VMError> {
+        return self.run(chunk, &mut io::stdout());
+    }
+
+    pub fn run<Output: io::Write>(
+        &mut self,
+        chunk: &Chunk,
+        output: &mut Output,
+    ) -> Result<Option<(Value, LinkedList<GcHandle>)>, VMError> {
         let mut allocations: LinkedList<GcHandle> = LinkedList::new();
 
         while self.pc < chunk.code.len() {
@@ -106,31 +118,28 @@ impl VM {
                             let a = self.pop_num()?;
                             self.push(Value::from(num + a));
                         }
-                        Value::Obj(b) => {
-                            match b.get_otype() {
-                                ObjectType::String => {
-                                    let a = self.pop()?;
-                                    match a {
-                                        Value::Obj(a) => {
-                                            match a.get_otype() {
-                                                ObjectType::String => {
-                                                    let new_obj = unsafe {
-                                                        concat_string(a, b).unwrap()
-                                                    };
-                                                    self.push(Value::from(new_obj.get_object()));
-                                                    allocations.push_front(new_obj);
-                                                    Ok(())
-                                                },
-                                            }
-                                        },
-                                        _ => {
-                                            Err(self.type_err("String", a))
+                        Value::Obj(b) => match b.get_otype() {
+                            ObjectType::String => {
+                                let a = self.pop()?;
+                                match a {
+                                    Value::Obj(a) => match a.get_otype() {
+                                        ObjectType::String => {
+                                            let new_obj = unsafe { concat_string(a, b).unwrap() };
+                                            self.push(Value::from(new_obj.get_object()));
+                                            allocations.push_front(new_obj);
+                                            Ok(())
                                         }
-                                    }?
-                                },
+                                    },
+                                    _ => Err(self.type_err("String", a)),
+                                }?
                             }
+                        },
+                        _ => {
+                            return Err(VMError::Runtime(
+                                "Operands of + need to be numbers or strings".into(),
+                                self.pc,
+                            ))
                         }
-                        _ => return Err(VMError::Runtime("Operands of + need to be numbers or strings".into(), self.pc))
                     };
                 }
                 Op::Subtract | Op::Multiply | Op::Divide => {
@@ -146,7 +155,7 @@ impl VM {
                 }
                 Op::Greater | Op::Less => {
                     let b = self.pop_num()?;
-                    let a  = self.pop_num()?;
+                    let a = self.pop_num()?;
                     let r = match instr {
                         Op::Greater => a > b,
                         Op::Less => a < b,
@@ -160,15 +169,21 @@ impl VM {
                     let r = a == b;
                     self.push(r.into())
                 }
+                Op::Print => {
+                    let value = self.pop()?;
+                    writeln!(output, "{}", value)
+                        .map_err(|_| VMError::Runtime("Failed to print".into(), self.pc))?
+                }
             }
         }
 
         match self.stack.pop() {
             None => Ok(None),
             Some(result_value) => {
-                let escaping_allocs = allocations.into_iter().filter(
-                    |handle| Value::from(handle.get_object()) == result_value
-                ).collect();
+                let escaping_allocs = allocations
+                    .into_iter()
+                    .filter(|handle| Value::from(handle.get_object()) == result_value)
+                    .collect();
 
                 Ok(Some((result_value, escaping_allocs)))
             }
@@ -211,7 +226,7 @@ mod tests {
         );
 
         let mut vm = VM::new();
-        let (result, allocs) = vm.run(&chunk).unwrap().unwrap();
+        let (result, allocs) = vm.stdrun(&chunk).unwrap().unwrap();
 
         assert_eq!(result, Value::from(3.1416));
         assert!(vm.stack.is_empty());
@@ -220,16 +235,11 @@ mod tests {
 
     #[test]
     fn nil_error() {
-        let chunk = Chunk::new_with(
-            vec![Op::Nil, Op::Negate],
-            vec![],
-            vec![],
-            LinkedList::new(),
-        );
+        let chunk = Chunk::new_with(vec![Op::Nil, Op::Negate], vec![], vec![], LinkedList::new());
 
         let mut vm = VM::new();
         assert_eq!(
-            vm.run(&chunk).unwrap_err(),
+            vm.stdrun(&chunk).unwrap_err(),
             vm.type_err("Number", Value::Nil)
         );
     }
@@ -243,7 +253,7 @@ mod tests {
             LinkedList::new(),
         );
         let mut vm = VM::new();
-        let (result, allocs) = vm.run(&chunk)?.unwrap();
+        let (result, allocs) = vm.stdrun(&chunk)?.unwrap();
 
         assert_eq!(result, true.into());
         assert!(vm.stack.is_empty());
@@ -254,14 +264,9 @@ mod tests {
 
     #[test]
     fn not_nil_is_true() {
-        let chunk = Chunk::new_with(
-            vec![Op::Nil, Op::Not],
-            vec![],
-            vec![],
-            LinkedList::new(),
-        );
+        let chunk = Chunk::new_with(vec![Op::Nil, Op::Not], vec![], vec![], LinkedList::new());
         let mut vm = VM::new();
-        let (result, allocs) = vm.run(&chunk).unwrap().unwrap();
+        let (result, allocs) = vm.stdrun(&chunk).unwrap().unwrap();
 
         assert_eq!(result, true.into());
         assert!(vm.stack.is_empty());

@@ -1,4 +1,7 @@
-use std::{alloc::{alloc, dealloc, Layout, LayoutError}, fmt};
+use std::{
+    alloc::{alloc, dealloc, Layout, LayoutError},
+    fmt::{self, Display},
+};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 #[repr(usize)]
@@ -32,13 +35,20 @@ pub struct Object {
     ptr: *mut ObjectHeader,
 }
 
-impl Object {
-    pub fn get_otype(&self) -> ObjectType {
-        unsafe {
-            (*self.ptr).otype
+impl Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.get_otype() {
+            ObjectType::String => {
+                write!(f, "{}", ObjString::as_str(self.ptr as *mut ObjStringHeader))
+            }
         }
     }
+}
 
+impl Object {
+    pub fn get_otype(&self) -> ObjectType {
+        unsafe { (*self.ptr).otype }
+    }
 }
 
 impl fmt::Debug for Object {
@@ -46,14 +56,10 @@ impl fmt::Debug for Object {
         match self.get_otype() {
             ObjectType::String => {
                 let string = self.ptr as *mut ObjStringHeader;
-                let data: &[u8] = ObjString::as_slice(string);
-                write!(
-                    f,
-                    "STR {} {:?}",
-                    data.len(),
-                    &data[..8.min(data.len())],
-                )
-            },
+                let data = ObjString::as_str(string);
+
+                write!(f, "STR {} {:?}", data.len(), &data[..8.min(data.len())],)
+            }
         }
     }
 }
@@ -78,11 +84,11 @@ impl PartialEq for Object {
                         return false;
                     }
 
-                    let slice = ObjString::as_slice(header);
-                    let other_slice = ObjString::as_slice(other_header);
+                    let slice = ObjString::as_str(header);
+                    let other_slice = ObjString::as_str(other_header);
 
                     slice == other_slice
-                },
+                }
             }
         }
     }
@@ -101,24 +107,29 @@ impl ObjString {
         Ok((layout.pad_to_align(), offset))
     }
 
-    fn as_slice<'a>(ptr: *mut ObjStringHeader) -> &'a [u8] {
+    fn as_bytes<'a>(ptr: *const ObjStringHeader) -> &'a [u8] {
         unsafe {
-            std::slice::from_raw_parts(
-                (ptr as *mut u8).offset(data_offset() as isize),
-                (*ptr).len
-            )
+            std::slice::from_raw_parts((ptr as *mut u8).offset(data_offset() as isize), (*ptr).len)
         }
+    }
+
+    fn as_str<'a>(ptr: *const ObjStringHeader) -> &'a str {
+        unsafe { std::str::from_utf8_unchecked(ObjString::as_bytes(ptr)) }
     }
 }
 
-pub unsafe fn allocate_string_obj<'a>(length: usize) -> Result<(GcHandle, &'a mut [u8]), LayoutError> {
+pub unsafe fn allocate_string_obj<'a>(
+    length: usize,
+) -> Result<(GcHandle, &'a mut [u8]), LayoutError> {
     let (layout, offset) = ObjString::layout(length)?;
     let allocation = alloc(layout);
     let data_ptr = allocation.offset(offset as isize);
     let header = allocation as *mut ObjStringHeader;
     (*header).len = length;
     (*header).object_header.otype = ObjectType::String;
-    let object = Object { ptr: header as *mut ObjectHeader };
+    let object = Object {
+        ptr: header as *mut ObjectHeader,
+    };
     let str = std::slice::from_raw_parts_mut(data_ptr, length);
     Ok((GcHandle { object }, str))
 }
@@ -132,11 +143,11 @@ pub unsafe fn allocate_string(content: &str) -> Result<GcHandle, LayoutError> {
 pub unsafe fn concat_string(a: Object, b: Object) -> Result<GcHandle, LayoutError> {
     let a_head = a.ptr as *mut ObjStringHeader;
     let b_head = b.ptr as *mut ObjStringHeader;
-    let a_data = ObjString::as_slice(a_head);
-    let b_data = ObjString::as_slice(b_head);
+    let a_data = ObjString::as_bytes(a_head);
+    let b_data = ObjString::as_bytes(b_head);
     let new_len = a_data.len() + b_data.len();
 
-    let (gc_handle,  slice) = allocate_string_obj(new_len)?;
+    let (gc_handle, slice) = allocate_string_obj(new_len)?;
 
     slice[..a_data.len()].copy_from_slice(a_data);
     slice[a_data.len()..].copy_from_slice(b_data);
@@ -158,7 +169,7 @@ unsafe fn deallocate_object(object: Object) {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GcHandle {
-    object: Object
+    object: Object,
 }
 
 impl Drop for GcHandle {

@@ -9,6 +9,7 @@ use std::io;
 use bc::Chunk;
 use vm::VM;
 
+
 fn repl() {
     let mut buffer = String::new();
 
@@ -21,7 +22,7 @@ fn repl() {
                 lc::compile(buffer.as_str(), &mut chunk);
                 let mut vm = VM::new();
                 vm.set_trace(do_trace);
-                let result = vm.run(&chunk);
+                let result = vm.stdrun(&chunk);
                 println!("{:?}", result);
                 buffer.clear();
             }
@@ -49,26 +50,40 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::{bc::{Chunk, Value}, gc::allocate_string, lc::compile, vm::VM};
+    use std::io::BufWriter;
+
+    use crate::{bc::{Chunk, Value}, gc::allocate_string, lc::{compile, compile_expr}, vm::VM};
 
     #[test]
     fn test_compile_and_run_pi_math() {
         let source = "-(3 * 7 * 11 * 17) / -(500 + 1000 - 250)";
         let mut chunk = Chunk::new();
-        compile(source, &mut chunk);
+        compile_expr(source, &mut chunk);
         let mut vm = VM::new();
-        vm.run(&chunk).unwrap();
+        vm.stdrun(&chunk).unwrap();
     }
 
     #[test]
     fn string_concatenation() {
         let source = "\"hello\" + \" \" + \"world\"";
         let mut chunk = Chunk::new();
-        compile(source, &mut chunk);
+        compile_expr(source, &mut chunk);
         let mut vm = VM::new();
-        let (result, _allocs) = vm.run(&chunk).unwrap().unwrap();
+        let (result, _allocs) = vm.stdrun(&chunk).unwrap().unwrap();
         let target_alloc = unsafe { allocate_string("hello world").unwrap() };
         let target = Value::from(target_alloc.get_object());
         assert_eq!(result, target);
+    }
+
+    #[test]
+    fn print_hello_world() {
+        let source = "print \"hello\" + \" \" + \"world\";";
+        let mut chunk = Chunk::new();
+        let mut vm = VM::new();
+        compile(source, &mut chunk);
+        let mut buf = BufWriter::new(Vec::new());
+        vm.run(&chunk, &mut buf).unwrap();
+        let stdoutput = String::from_utf8(buf.into_inner().unwrap()).unwrap();
+        assert_eq!(stdoutput, "hello world\n");
     }
 }
