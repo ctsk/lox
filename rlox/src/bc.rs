@@ -22,6 +22,7 @@ pub enum Op {
     Less,
 
     Print,
+    Pop
 }
 
 #[derive(Clone, Debug, PartialEq)]

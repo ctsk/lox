@@ -1,4 +1,5 @@
 use std::iter::Peekable;
+use std::ops::Range;
 use std::str::CharIndices;
 use std::{collections::HashMap, convert::identity};
 
@@ -52,7 +53,7 @@ enum TokenType {
     Error,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Token<'src> {
     ttype: TokenType,
     span: &'src str,
@@ -72,21 +73,16 @@ impl LineMap {
     fn new(source: &str) -> LineMap {
         LineMap {
             line_breaks: source
-                .char_indices()
-                .filter_map(|(pos, c)| if c == '\n' { Some(pos) } else { None })
+                .bytes()
+                .enumerate()
+                .filter_map(|(pos, c)| if c == b'\n' { Some(pos) } else { None })
                 .collect(),
         }
     }
 
-    fn get_line(&self, pos: usize) -> usize {
-        self.line_breaks
-            .binary_search(&pos)
-            .unwrap_or_else(identity)
-    }
-
-    fn get_lines(&self, start: usize, slice: &str) -> (usize, usize) {
-        let end = start + slice.len();
-        (self.get_line(start), self.get_line(end))
+    fn pos_to_line(&self, pos: usize) -> usize {
+        let (Ok(index) | Err(index)) = self.line_breaks.binary_search(&pos);
+        index + 1
     }
 }
 
@@ -104,6 +100,17 @@ impl<'src> Scanner<'src> {
             ttype,
             span: &self.source[start..=end],
         }
+    }
+
+    pub fn get_range(&self, token: Token) -> Option<Range<usize>> {
+        let [source_addr, span_addr]: [usize; 2] =
+            [self.source, token.span].map(|s| s.as_ptr() as usize);
+        if span_addr < source_addr || span_addr + token.span.len() > source_addr + self.source.len()
+        {
+            return None; // out of bounds
+        }
+        let start_index = span_addr - source_addr;
+        Some(start_index..start_index + token.span.len())
     }
 
     fn consume_if<P>(&mut self, p: P) -> Option<usize>
@@ -152,6 +159,8 @@ impl<'src> Scanner<'src> {
         end = self
             .consume_while(|c| c.is_ascii_alphanumeric())
             .unwrap_or(end);
+
+        // todo: make robust to non-ascii chars
 
         if let Some(pos) = self.consume_if_eq('.') {
             end = pos;
@@ -267,6 +276,7 @@ impl<'src> Iterator for Scanner<'src> {
 
 struct Parser<'src> {
     scanner: Peekable<Scanner<'src>>,
+    errors: Vec<ParseError<'src>>,
     intern_table: HashMap<&'src str, u8>,
 }
 
@@ -292,16 +302,18 @@ enum Precedence {
 }
 
 enum ParseError<'src> {
-    InvalidNumber(Token<'src>)
+    InvalidNumber(Token<'src>),
+    UnexpectedToken(Vec<TokenType>, Token<'src>),
+    UnexpectedEOF,
 }
 
-type Result<'src, T> = std::result::Result<T, ParseError<'src>>;
+type Result<'src> = std::result::Result<(), ParseError<'src>>;
 
 impl<'src> Parser<'src> {
-
     fn new(sc: Scanner<'src>) -> Self {
         Parser {
             scanner: sc.into_iter().peekable(),
+            errors: Vec::new(),
             intern_table: HashMap::new(),
         }
     }
@@ -328,12 +340,12 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn _expression(&mut self, chunk: &mut Chunk, min_prec: Precedence) {
+    fn _expression(&mut self, chunk: &mut Chunk, min_prec: Precedence) -> Result<'src> {
         match self.scanner.next() {
-            None => panic!("Expected further tokens"),
+            None => return Err(ParseError::UnexpectedEOF),
             Some(token) => match token.ttype {
                 TokenType::Minus | TokenType::Bang => {
-                    self._expression(chunk, Precedence::Unary);
+                    self._expression(chunk, Precedence::Unary)?;
                     let op = match token.ttype {
                         TokenType::Minus => Op::Negate,
                         TokenType::Bang => Op::Not,
@@ -343,9 +355,9 @@ impl<'src> Parser<'src> {
                 }
                 TokenType::Number => {
                     match token.span.parse::<f64>() {
-                        Ok(c) => chunk.add_constant(c.into(), 0),
-                        _ => panic!("Could not parse number"),
-                    };
+                        Ok(c) => Ok(chunk.add_constant(c.into(), 0)),
+                        _ => Err(ParseError::InvalidNumber(token)),
+                    }?;
                 }
                 TokenType::String => {
                     let without_quotes = &token.span[1..(token.span.len() - 1)];
@@ -362,20 +374,26 @@ impl<'src> Parser<'src> {
                         }
                     };
                 }
-                TokenType::Nil | TokenType::True | TokenType::False => {
-                    let op = match token.ttype {
-                        TokenType::Nil => Op::Nil,
-                        TokenType::True => Op::True,
-                        TokenType::False => Op::False,
-                        _ => unreachable!(),
-                    };
-                    chunk.add_op(op, 0);
-                }
                 TokenType::LeftParen => {
-                    self._expression(chunk, Precedence::None);
+                    self._expression(chunk, Precedence::None)?;
                     assert_eq!(self.scanner.next().unwrap().ttype, TokenType::RightParen)
                 }
-                _ => panic!("Expected '-' or number"),
+                TokenType::Nil => {
+                    chunk.add_op(Op::Nil, 0);
+                }
+                TokenType::True => {
+                    chunk.add_op(Op::True, 0);
+                }
+                TokenType::False => {
+                    chunk.add_op(Op::False, 0);
+                }
+                _ => {
+                    use TokenType::*;
+                    return Err(ParseError::UnexpectedToken(
+                        vec![Minus, Bang, Number, String, Nil, True, False, LeftParen],
+                        token,
+                    ));
+                }
             },
         };
 
@@ -398,7 +416,7 @@ impl<'src> Parser<'src> {
             }
         }) {
             // Generates code for rhs
-            self._expression(chunk, Self::precedence(op.ttype));
+            self._expression(chunk, Self::precedence(op.ttype))?;
 
             match op.ttype {
                 TokenType::Plus => chunk.add_op(Op::Add, 0),
@@ -411,50 +429,89 @@ impl<'src> Parser<'src> {
                 TokenType::BangEqual => chunk.add_op(Op::Equal, 0).add_op(Op::Not, 0),
                 TokenType::GreaterEqual => chunk.add_op(Op::Less, 0).add_op(Op::Not, 0),
                 TokenType::LessEqual => chunk.add_op(Op::Greater, 0).add_op(Op::Not, 0),
-                _ => todo!(),
+                _ => {
+                    use TokenType::*;
+                    return Err(ParseError::UnexpectedToken(
+                        vec![
+                            Plus,
+                            Minus,
+                            Star,
+                            Slash,
+                            EqualEqual,
+                            Greater,
+                            Less,
+                            BangEqual,
+                            GreaterEqual,
+                            LessEqual,
+                        ],
+                        op,
+                    ));
+                }
             };
         }
 
+        Ok(())
     }
 
-    pub fn expression(&mut self, chunk: &mut Chunk) {
+    pub fn expression(&mut self, chunk: &mut Chunk) -> Result<'src> {
         self._expression(chunk, Precedence::None)
     }
 
-    pub fn must_consume(&mut self, ttype: TokenType) -> Option<Token> {
-        self.scanner.next_if(
-            |tok| tok.ttype == ttype
-        ).or_else(
-            || panic!()
-        )
+    pub fn must_consume(&mut self, ttype: TokenType) -> Result<'src> {
+        match self.scanner.peek() {
+            Some(token) => {
+                if token.ttype == ttype {
+                    self.scanner.next();
+                    Ok(())
+                } else {
+                    Err(ParseError::UnexpectedToken(vec![ttype], token.clone()))
+                }
+            },
+            None => Err(ParseError::UnexpectedEOF),
+        }
     }
 
-    pub fn print_statement(&mut self, chunk: &mut Chunk) {
-        self.must_consume(TokenType::Print).unwrap();
-        self.expression(chunk);
+    pub fn print_statement(&mut self, chunk: &mut Chunk) -> Result<'src> {
+        self.must_consume(TokenType::Print)?;
+        self.expression(chunk)?;
         chunk.add_op(Op::Print, 0);
-        self.must_consume(TokenType::Semicolon).unwrap();
+        self.must_consume(TokenType::Semicolon)
     }
 
-    pub fn expr_statement(&mut self, chunk: &mut Chunk) {
-        self.expression(chunk);
-        self.must_consume(TokenType::Semicolon).unwrap();
+    pub fn expr_statement(&mut self, chunk: &mut Chunk) -> Result<'src> {
+        self.expression(chunk)?;
+        chunk.add_op(Op::Pop, 0);
+        self.must_consume(TokenType::Semicolon)
     }
 
-    pub fn statement(&mut self, chunk: &mut Chunk) {
+    pub fn statement(&mut self, chunk: &mut Chunk) -> Result<'src> {
         match self.scanner.peek().unwrap().ttype {
             TokenType::Print => self.print_statement(chunk),
             _ => self.expr_statement(chunk),
         }
     }
 
+    pub fn synchronize(&mut self) {
+        use TokenType::*;
+        while let Some(token) = self.scanner.next_if(
+            |tok| ![Semicolon, Class, Fun, Var, For, If, While, Print, Return].contains(&tok.ttype)
+        ) {}
+
+
+    }
+
     pub fn declaration(&mut self, chunk: &mut Chunk) {
-        self.statement(chunk);
+        self.statement(chunk).unwrap_or_else(
+            |err| {
+                self.errors.push(err);
+                self.synchronize();
+            }
+        )
     }
 
     pub fn compile(&mut self, chunk: &mut Chunk) {
         while let Some(_) = self.scanner.peek() {
-            self.declaration(chunk);
+            self.declaration(chunk)
         }
     }
 }
@@ -492,43 +549,54 @@ mod tests {
             vec![
                 Token {
                     ttype: TokenType::Print,
-                    span: &source[0..=4]
+                    span: "print"
                 },
                 Token {
                     ttype: TokenType::LeftParen,
-                    span: &source[5..=5]
+                    span: "("
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: &source[6..=6]
+                    span: "1"
                 },
                 Token {
                     ttype: TokenType::Plus,
-                    span: &source[7..=7]
+                    span: "+"
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: &source[8..=8]
+                    span: "2"
                 },
                 Token {
                     ttype: TokenType::Star,
-                    span: &source[9..=9]
+                    span: "*"
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: &source[10..=10]
+                    span: "3"
                 },
                 Token {
                     ttype: TokenType::RightParen,
-                    span: &source[11..=11]
+                    span: ")"
                 },
                 Token {
                     ttype: TokenType::Semicolon,
-                    span: &source[12..=12]
+                    span: ";"
                 }
             ]
         );
     }
+
+    // #[test]
+    // fn number_scan() {
+    //     let source = "1a";
+    //     let scanner = Scanner::new(source);
+    //     let tokens: Vec<Token> = scanner.collect();
+    //     assert_eq!(
+    //         tokens,
+    //         vec![Token{ttype: TokenType::Number, span: "1a"}]
+    //     );
+    // }
 
     #[test]
     fn comment_scan() {
@@ -541,15 +609,15 @@ mod tests {
             vec![
                 Token {
                     ttype: TokenType::Number,
-                    span: &source[0..=0]
+                    span: "1"
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: &source[2..=2]
+                    span: "2"
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: &source[13..=13]
+                    span: "3"
                 }
             ]
         );
@@ -565,7 +633,7 @@ mod tests {
             tokens,
             vec![Token {
                 ttype: TokenType::String,
-                span: &source[0..=12]
+                span: "\"hello world\""
             }]
         );
 
@@ -580,11 +648,12 @@ mod tests {
         assert!(chunk.instr_eq(expected));
     }
 
-    fn test_parse_program(source: &str, expected: &Chunk) {
+    fn test_parse_program<'src>(source: &'src str, expected: &Chunk) {
         let scanner = Scanner::new(source);
         let mut parser = Parser::new(scanner);
         let mut chunk = Chunk::new();
         parser.compile(&mut chunk);
+        assert!(parser.errors.is_empty());
         assert!(chunk.instr_eq(expected));
     }
 
@@ -699,12 +768,44 @@ mod tests {
         let source = "1 / 1;";
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
-            vec![Constant { offset: 0 }, Constant { offset: 1 }, Divide],
+            vec![Constant { offset: 0 }, Constant { offset: 1 }, Divide, Pop],
             vec![],
             vec![Value::from(1.0), Value::from(1.0)],
             LinkedList::new(),
         );
 
         test_parse_program(source, &expected);
+    }
+
+    #[test]
+    fn no_line_breaks() {
+        let line_map = LineMap::new("0123456789");
+
+        for i in 0..=9 {
+            assert_eq!(line_map.pos_to_line(i), 1);
+        }
+    }
+
+    #[test]
+    fn some_line_breaks() {
+        let line_map = LineMap::new("012\n456\n89\n");
+
+        for i in 0..=2 {
+            assert_eq!(line_map.pos_to_line(i), 1);
+        }
+
+        assert_eq!(line_map.pos_to_line(3), 1);
+
+        for i in 4..=6 {
+            assert_eq!(line_map.pos_to_line(i), 2);
+        }
+
+        assert_eq!(line_map.pos_to_line(7), 2);
+
+        for i in 8..=9 {
+            assert_eq!(line_map.pos_to_line(i), 3);
+        }
+
+        assert_eq!(line_map.pos_to_line(10), 3);
     }
 }

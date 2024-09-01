@@ -173,6 +173,9 @@ impl VM {
                     let value = self.pop()?;
                     writeln!(output, "{}", value)
                         .map_err(|_| VMError::Runtime("Failed to print".into(), self.pc))?
+                },
+                Op::Pop => {
+                    self.pop()?;
                 }
             }
         }
