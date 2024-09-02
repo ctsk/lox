@@ -12,7 +12,8 @@ public class LoxNodeFactory {
     }
 
     public static LoxStringLiteralNode createStringLiteral(Token literalToken) {
-        var value = TruffleString.fromJavaStringUncached(literalToken.getText(), TruffleString.Encoding.UTF_16);
+        var text = literalToken.getText();
+        var value = TruffleString.fromJavaStringUncached(text.substring(1, text.length() - 1), TruffleString.Encoding.UTF_16);
         return new LoxStringLiteralNode(value);
     }
 
