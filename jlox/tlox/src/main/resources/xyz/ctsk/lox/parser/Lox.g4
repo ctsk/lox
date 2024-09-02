@@ -5,21 +5,31 @@ grammar Lox;
 
 import com.oracle.truffle.api.source.Source;
 
+import xyz.ctsk.lox.nodes.LoxNode;
 import xyz.ctsk.lox.nodes.LoxExpressionNode;
 import xyz.ctsk.lox.parser.*;
+
+import java.io.IOException;
+import java.io.Reader;
 
 }
 
 @parser::members {
     private LoxNodeFactory factory;
 
-    public static Object parseLox(String source) {
-        LoxLexer lexer = new LoxLexer(CharStreams.fromString(source));
+    public static LoxNode parseLox(String source) {
+        return parseLox(CharStreams.fromString(source));
+    }
+
+    public static LoxNode parseLox(Reader reader) throws IOException {
+        return parseLox(CharStreams.fromReader(reader));
+    }
+
+    public static LoxNode parseLox(CharStream inputStream) {
+        LoxLexer lexer = new LoxLexer(inputStream);
         LoxParser parser = new LoxParser(new CommonTokenStream(lexer));
-
         parser.factory = new LoxNodeFactory();
-
-        return parser.expression();
+        return parser.file().expression().result;
     }
 }
 
