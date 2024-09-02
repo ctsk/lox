@@ -2,6 +2,7 @@ package xyz.ctsk.lox;
 
 import com.oracle.truffle.api.CallTarget;
 import com.oracle.truffle.api.TruffleLanguage;
+import com.oracle.truffle.api.strings.TruffleString;
 import xyz.ctsk.lox.nodes.LoxExpressionNode;
 import xyz.ctsk.lox.nodes.LoxNode;
 import xyz.ctsk.lox.nodes.LoxRootNode;
@@ -11,6 +12,7 @@ import xyz.ctsk.lox.parser.LoxParser;
 public class LoxLanguage extends TruffleLanguage<Void> {
     public static final String ID = "lox";
     public static final String NAME = "Lox";
+    public static final TruffleString.Encoding STRING_ENCODING = TruffleString.Encoding.UTF_16;
 
     @Override
     protected CallTarget parse(ParsingRequest request) throws Exception {
