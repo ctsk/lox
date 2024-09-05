@@ -102,7 +102,7 @@ public class Parser {
             methods.add(function(FunctionType.METHOD));
         }
 
-        consume(LEFT_BRACE, "Expect '}' after class body.");
+        consume(RIGHT_BRACE, "Expect '}' after class body.");
         return new Stmt.Class(name, superclass, methods);
     }
 
