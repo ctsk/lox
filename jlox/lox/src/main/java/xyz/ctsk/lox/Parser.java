@@ -121,7 +121,7 @@ public class Parser {
                 params.add(consume(IDENTIFIER, "Expect parameter name."));
             } while (match(COMMA));
         }
-        consume(RIGHT_PAREN, "Expect ')' after parameters");
+        consume(RIGHT_PAREN, "Expect ')' after parameters.");
 
         consume(LEFT_BRACE, "Expect '{' before %s body.".formatted(kind.toString().toLowerCase()));
         List<Stmt> body = blockStatement();
@@ -382,7 +382,7 @@ public class Parser {
             } while (match(COMMA));
         }
 
-        Token paren = consume(RIGHT_PAREN, "Expect ')' after arguments");
+        Token paren = consume(RIGHT_PAREN, "Expect ')' after arguments.");
         return new Expr.Call(callee, paren, arguments);
     }
 
@@ -397,7 +397,7 @@ public class Parser {
 
         if (match(SUPER)) {
             Token keyword = previous();
-            consume(DOT, "Expect ',' after 'super'.");
+            consume(DOT, "Expect '.' after 'super'.");
             Token method = consume(IDENTIFIER, "Expect superclass method name.");
             return new Expr.Super(keyword, method);
         }
