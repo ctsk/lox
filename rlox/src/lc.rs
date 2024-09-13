@@ -1,10 +1,15 @@
+use std::fmt;
 use std::iter::Peekable;
-use std::ops::Range;
 use std::str::CharIndices;
-use std::{collections::HashMap, convert::identity};
+use std::collections::HashMap;
 
 use crate::bc::{Chunk, Op};
 use crate::gc::allocate_string;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ScanErrorKind {
+    UndelimitedString,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TokenType {
@@ -50,74 +55,74 @@ enum TokenType {
     Var,
     While,
 
-    Error,
+    Error(ScanErrorKind),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Token<'src> {
     ttype: TokenType,
     span: &'src str,
+    line: usize,
+}
+
+struct Source<'src> {
+    line: usize,
+    iter: CharIndices<'src>,
+}
+
+impl<'src> Source<'src> {
+    fn new(str: &'src str) -> Self {
+        Source {
+            line: 1,
+            iter: str.char_indices(),
+        }
+    }
+}
+
+impl<'src> Iterator for Source<'src> {
+    type Item = (usize, usize, char);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next() {
+            Some((p, ch)) => {
+                let old_line = self.line;
+                if ch == '\n' {
+                    self.line += 1;
+                }
+
+                Some((old_line, p, ch))
+            },
+            None => None,
+        }
+    }
 }
 
 pub struct Scanner<'src> {
     source: &'src str,
-    iter: Peekable<CharIndices<'src>>,
-    line_map: LineMap,
-}
-
-pub struct LineMap {
-    line_breaks: Vec<usize>,
-}
-
-impl LineMap {
-    fn new(source: &str) -> LineMap {
-        LineMap {
-            line_breaks: source
-                .bytes()
-                .enumerate()
-                .filter_map(|(pos, c)| if c == b'\n' { Some(pos) } else { None })
-                .collect(),
-        }
-    }
-
-    fn pos_to_line(&self, pos: usize) -> usize {
-        let (Ok(index) | Err(index)) = self.line_breaks.binary_search(&pos);
-        index + 1
-    }
+    iter: Peekable<Source<'src>>,
 }
 
 impl<'src> Scanner<'src> {
     pub fn new(source: &'src str) -> Self {
         Scanner {
             source,
-            iter: source.char_indices().peekable(),
-            line_map: LineMap::new(source),
+            iter: Source::new(source).peekable(),
         }
     }
 
-    fn make_token(&self, ttype: TokenType, start: usize, end: usize) -> Token<'src> {
+    fn make_token(&self, ttype: TokenType, line: usize, start: usize, end: usize) -> Token<'src> {
         Token {
             ttype,
             span: &self.source[start..=end],
+            line,
         }
-    }
-
-    pub fn get_range(&self, token: Token) -> Option<Range<usize>> {
-        let [source_addr, span_addr]: [usize; 2] =
-            [self.source, token.span].map(|s| s.as_ptr() as usize);
-        if span_addr < source_addr || span_addr + token.span.len() > source_addr + self.source.len()
-        {
-            return None; // out of bounds
-        }
-        let start_index = span_addr - source_addr;
-        Some(start_index..start_index + token.span.len())
     }
 
     fn consume_if<P>(&mut self, p: P) -> Option<usize>
     where
         P: Fn(char) -> bool,
     {
-        self.iter.next_if(|&(_, c)| p(c)).map(|(p, _c)| p)
+        self.iter.next_if(|&(_, _, c)| p(c)).map(|(_l, p, _c)| p)
     }
 
     fn consume_if_eq(&mut self, expected: char) -> Option<usize> {
@@ -137,24 +142,21 @@ impl<'src> Scanner<'src> {
         })
     }
 
-    fn consume_until_eq(&mut self, limit: char) -> Option<usize> {
-        for (p, c) in self.iter.by_ref() {
+    fn consume_until_eq(&mut self, limit: char) -> std::result::Result<usize, usize> {
+        for (_line, p, c) in self.iter.by_ref() {
             if c == limit {
-                return Some(p);
+                return Ok(p);
             }
         }
-        None
+
+        Err(self.source.len())
     }
 
-    fn scan_string(&mut self, start: usize) -> Token<'src> {
-        let end = self.consume_until_eq('"').unwrap_or_else(|| {
-            panic!("Undelimited String");
-        });
-
-        self.make_token(TokenType::String, start, end)
+    fn scan_string(&mut self) -> std::result::Result<usize, usize> {
+        self.consume_until_eq('"')
     }
 
-    fn scan_number(&mut self, start: usize) -> Token<'src> {
+    fn scan_number(&mut self, start: usize) -> usize {
         let mut end = start;
         end = self
             .consume_while(|c| c.is_ascii_alphanumeric())
@@ -170,10 +172,10 @@ impl<'src> Scanner<'src> {
                 .unwrap_or(end);
         }
 
-        self.make_token(TokenType::Number, start, end)
+        end
     }
 
-    fn scan_identifier(&mut self, start: usize) -> Token<'src> {
+    fn scan_identifier(&mut self, line: usize, start: usize) -> Token<'src> {
         let mut end = start;
 
         end = self
@@ -202,11 +204,11 @@ impl<'src> Scanner<'src> {
             _ => TokenType::Identifier,
         };
 
-        Token { ttype, span: slice }
+        Token { ttype, span: slice, line }
     }
 
     fn scan_comment(&mut self) {
-        self.consume_until_eq('\n');
+        let _ = self.consume_until_eq('\n');
     }
 }
 
@@ -214,21 +216,16 @@ impl<'src> Iterator for Scanner<'src> {
     type Item = Token<'src>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Skip Whitespace
-        while self
-            .iter
-            .next_if(|(_, b)| b.is_ascii_whitespace())
-            .is_some()
-        {}
+        self.consume_while(|ch| ch.is_ascii_whitespace());
 
-        if let Some((start_pos, start_ch)) = self.iter.next() {
+        if let Some((start_line, start_pos, start_ch)) = self.iter.next() {
             let make_simple_token =
-                |s: &Self, ttype: TokenType| Some(s.make_token(ttype, start_pos, start_pos));
+                |s: &Self, ttype: TokenType| Some(s.make_token(ttype, start_line, start_pos, start_pos));
 
             let handle_eq_suffix = |s: &mut Self, if_present: TokenType, if_absent: TokenType| {
                 Some(match s.consume_if_eq('=') {
-                    Some(end) => s.make_token(if_present, start_pos, end),
-                    None => s.make_token(if_absent, start_pos, start_pos),
+                    Some(end) => s.make_token(if_present, start_line, start_pos, end),
+                    None => s.make_token(if_absent, start_line, start_pos, start_pos),
                 })
             };
 
@@ -256,11 +253,15 @@ impl<'src> Iterator for Scanner<'src> {
                 '<' => handle_eq_suffix(self, TokenType::LessEqual, TokenType::Less),
                 _ => {
                     let token = if start_ch.is_ascii_digit() {
-                        self.scan_number(start_pos)
+                        let end = self.scan_number(start_pos);
+                        self.make_token(TokenType::Number, start_line, start_pos, end)
                     } else if start_ch.is_ascii_alphabetic() {
-                        self.scan_identifier(start_pos)
+                        self.scan_identifier(start_line, start_pos)
                     } else if start_ch == '"' {
-                        self.scan_string(start_pos)
+                        match self.scan_string() {
+                            Ok(end) => self.make_token(TokenType::String, start_line, start_pos, end),
+                            Err(end) => self.make_token(TokenType::Error(ScanErrorKind::UndelimitedString), start_line, start_pos, end),
+                        }
                     } else {
                         panic!("Invalid character");
                     };
@@ -278,6 +279,55 @@ struct Parser<'src> {
     scanner: Peekable<Scanner<'src>>,
     errors: Vec<ParseError<'src>>,
     intern_table: HashMap<&'src str, u8>,
+    end_line: usize,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseErrorKind {
+    InvalidNumber,
+    UnexpectedEOF,
+    IncompleteExpression,
+    NoSemicolonAfterValue,
+    NoSemicolonAfterExpression,
+}
+
+impl fmt::Display for ParseErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseErrorKind::InvalidNumber => todo!(),
+            ParseErrorKind::UnexpectedEOF => todo!(),
+            ParseErrorKind::IncompleteExpression => {
+                write!(f, "Expect expression.")
+            },
+            ParseErrorKind::NoSemicolonAfterValue => todo!(),
+            ParseErrorKind::NoSemicolonAfterExpression => {
+                write!(f, "Expect ';' after expression.")
+            },
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ParseError<'src> {
+    location: Option<Token<'src>>,
+    line: usize,
+    kind: ParseErrorKind,
+}
+
+impl<'src> fmt::Display for ParseError<'src> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.location {
+            Some(location) => {
+                match location.ttype {
+                    TokenType::Error(_) => write!(f, "[line {}] Error: {}", self.line, self.kind),
+                    _ => write!(f, "[line {}] Error at '{}': {}", self.line, location.span, self.kind),
+                }
+            }
+            None => {
+                write!(f, "[line {}] Error at end: {}", self.line, self.kind)
+            },
+        }
+    }
 }
 
 enum Associativity {
@@ -301,32 +351,27 @@ enum Precedence {
     Primary,
 }
 
-enum ParseError<'src> {
-    InvalidNumber(Token<'src>),
-    UnexpectedToken(Vec<TokenType>, Token<'src>),
-    UnexpectedEOF,
-}
-
-type Result<'src> = std::result::Result<(), ParseError<'src>>;
+type Result<'src, T> = std::result::Result<T, ParseError<'src>>;
 
 impl<'src> Parser<'src> {
     fn new(sc: Scanner<'src>) -> Self {
+        let line_count = sc.source.chars().filter(|c| *c == '\n').count() + 1;
         Parser {
             scanner: sc.into_iter().peekable(),
             errors: Vec::new(),
             intern_table: HashMap::new(),
+            end_line: line_count,
         }
     }
 
-    fn precedence(ttype: TokenType) -> Precedence {
+    fn precedence(ttype: TokenType) -> Option<Precedence> {
         use TokenType::*;
         match ttype {
-            Plus | Minus => Precedence::Term,
-            Star | Slash => Precedence::Factor,
-            EqualEqual | BangEqual => Precedence::Equality,
-            Greater | GreaterEqual | Less | LessEqual => Precedence::Comparison,
-            RightParen => Precedence::None,
-            _ => panic!("Undefined precedence: {:?}", ttype),
+            Plus | Minus => Some(Precedence::Term),
+            Star | Slash => Some(Precedence::Factor),
+            EqualEqual | BangEqual => Some(Precedence::Equality),
+            Greater | GreaterEqual | Less | LessEqual => Some(Precedence::Comparison),
+            _ => None,
         }
     }
 
@@ -340,9 +385,33 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn _expression(&mut self, chunk: &mut Chunk, min_prec: Precedence) -> Result<'src> {
+    fn error_end(&self, kind: ParseErrorKind) -> ParseError<'src> {
+        ParseError {
+            location: None,
+            line: self.end_line,
+            kind
+        }
+    }
+
+    fn error_at(&self, location: Token<'src>, kind: ParseErrorKind) -> ParseError<'src> {
+        let line = location.line;
+        ParseError {
+            location: Some(location),
+            line,
+            kind
+        }
+    }
+
+    fn error_at_or_end(&self, location: Option<Token<'src>>, kind: ParseErrorKind) -> ParseError<'src> {
+        match location {
+            Some(location) => self.error_at(location, kind),
+            None => self.error_end(kind),
+        }
+    }
+
+    fn _expression(&mut self, chunk: &mut Chunk, min_prec: Precedence) -> Result<'src, ()> {
         match self.scanner.next() {
-            None => return Err(ParseError::UnexpectedEOF),
+            None => return Err(self.error_end(ParseErrorKind::IncompleteExpression)),
             Some(token) => match token.ttype {
                 TokenType::Minus | TokenType::Bang => {
                     self._expression(chunk, Precedence::Unary)?;
@@ -351,23 +420,23 @@ impl<'src> Parser<'src> {
                         TokenType::Bang => Op::Not,
                         _ => unreachable!(),
                     };
-                    chunk.add_op(op, 0);
+                    chunk.add_op(op, token.line);
                 }
                 TokenType::Number => {
                     match token.span.parse::<f64>() {
-                        Ok(c) => Ok(chunk.add_constant(c.into(), 0)),
-                        _ => Err(ParseError::InvalidNumber(token)),
+                        Ok(c) => Ok(chunk.add_constant(c.into(), token.line)),
+                        _ => Err(self.error_at(token, ParseErrorKind::InvalidNumber)),
                     }?;
                 }
                 TokenType::String => {
                     let without_quotes = &token.span[1..(token.span.len() - 1)];
                     match self.intern_table.get(without_quotes) {
                         Some(&index) => {
-                            chunk.add_op(Op::Constant { offset: index }, 0);
+                            chunk.add_op(Op::Constant { offset: index }, token.line);
                         }
                         None => {
                             let object = unsafe { allocate_string(without_quotes) }.unwrap();
-                            chunk.add_constant(object.get_object().into(), 0);
+                            chunk.add_constant(object.get_object().into(), token.line);
                             self.intern_table
                                 .insert(without_quotes, chunk.constants.len() as u8 - 1);
                             chunk.allocations.push_front(object);
@@ -379,125 +448,102 @@ impl<'src> Parser<'src> {
                     assert_eq!(self.scanner.next().unwrap().ttype, TokenType::RightParen)
                 }
                 TokenType::Nil => {
-                    chunk.add_op(Op::Nil, 0);
+                    chunk.add_op(Op::Nil, token.line);
                 }
                 TokenType::True => {
-                    chunk.add_op(Op::True, 0);
+                    chunk.add_op(Op::True, token.line);
                 }
                 TokenType::False => {
-                    chunk.add_op(Op::False, 0);
+                    chunk.add_op(Op::False, token.line);
                 }
                 _ => {
-                    use TokenType::*;
-                    return Err(ParseError::UnexpectedToken(
-                        vec![Minus, Bang, Number, String, Nil, True, False, LeftParen],
-                        token,
-                    ));
+                    return Err(self.error_at(token, ParseErrorKind::IncompleteExpression));
                 }
             },
         };
 
         while let Some(op) = self.scanner.next_if(|token| {
-            if token.ttype == TokenType::Semicolon {
-                return false;
-            }
-
-            let op_prec = Self::precedence(token.ttype);
-            if op_prec == min_prec {
-                match Self::associativity(min_prec) {
-                    Associativity::Left => false,
-                    Associativity::Right => true,
-                    Associativity::NonAssoc => {
-                        panic!("NonAssoc operation found in associative position")
+            if let Some(op_prec) = Self::precedence(token.ttype) {
+                if op_prec == min_prec {
+                    match Self::associativity(min_prec) {
+                        Associativity::Left => false,
+                        Associativity::Right => true,
+                        Associativity::NonAssoc => {
+                            panic!("NonAssoc operation found in associative position")
+                        }
                     }
+                } else {
+                    op_prec > min_prec
                 }
             } else {
-                op_prec > min_prec
+                false
             }
         }) {
             // Generates code for rhs
-            self._expression(chunk, Self::precedence(op.ttype))?;
+            self._expression(chunk, Self::precedence(op.ttype).unwrap())?;
 
             match op.ttype {
-                TokenType::Plus => chunk.add_op(Op::Add, 0),
-                TokenType::Minus => chunk.add_op(Op::Subtract, 0),
-                TokenType::Star => chunk.add_op(Op::Multiply, 0),
-                TokenType::Slash => chunk.add_op(Op::Divide, 0),
-                TokenType::EqualEqual => chunk.add_op(Op::Equal, 0),
-                TokenType::Greater => chunk.add_op(Op::Greater, 0),
-                TokenType::Less => chunk.add_op(Op::Less, 0),
-                TokenType::BangEqual => chunk.add_op(Op::Equal, 0).add_op(Op::Not, 0),
-                TokenType::GreaterEqual => chunk.add_op(Op::Less, 0).add_op(Op::Not, 0),
-                TokenType::LessEqual => chunk.add_op(Op::Greater, 0).add_op(Op::Not, 0),
-                _ => {
-                    use TokenType::*;
-                    return Err(ParseError::UnexpectedToken(
-                        vec![
-                            Plus,
-                            Minus,
-                            Star,
-                            Slash,
-                            EqualEqual,
-                            Greater,
-                            Less,
-                            BangEqual,
-                            GreaterEqual,
-                            LessEqual,
-                        ],
-                        op,
-                    ));
-                }
+                TokenType::Plus => chunk.add_op(Op::Add, op.line),
+                TokenType::Minus => chunk.add_op(Op::Subtract, op.line),
+                TokenType::Star => chunk.add_op(Op::Multiply, op.line),
+                TokenType::Slash => chunk.add_op(Op::Divide, op.line),
+                TokenType::EqualEqual => chunk.add_op(Op::Equal, op.line),
+                TokenType::Greater => chunk.add_op(Op::Greater, op.line),
+                TokenType::Less => chunk.add_op(Op::Less, op.line),
+                TokenType::BangEqual => chunk.add_op(Op::Equal, op.line).add_op(Op::Not, op.line),
+                TokenType::GreaterEqual => chunk.add_op(Op::Less, op.line).add_op(Op::Not, op.line),
+                TokenType::LessEqual => chunk.add_op(Op::Greater, op.line).add_op(Op::Not, op.line),
+                _ => unreachable!(),
             };
         }
 
         Ok(())
     }
 
-    pub fn expression(&mut self, chunk: &mut Chunk) -> Result<'src> {
+    pub fn expression(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
         self._expression(chunk, Precedence::None)
     }
 
-    pub fn must_consume(&mut self, ttype: TokenType) -> Result<'src> {
-        match self.scanner.peek() {
-            Some(token) => {
-                if token.ttype == ttype {
-                    self.scanner.next();
-                    Ok(())
-                } else {
-                    Err(ParseError::UnexpectedToken(vec![ttype], token.clone()))
-                }
+    pub fn print_statement(&mut self, print_token: Token<'src>, chunk: &mut Chunk) -> Result<'src, ()> {
+        self.expression(chunk)?;
+        chunk.add_op(Op::Print, print_token.line);
+        match self.scanner.next_if(|t| t.ttype == TokenType::Semicolon) {
+            Some(_) => Ok(()),
+            None => {
+                let location = self.scanner.peek().cloned();
+                Err(self.error_at_or_end(location, ParseErrorKind::NoSemicolonAfterValue))
             },
-            None => Err(ParseError::UnexpectedEOF),
         }
     }
 
-    pub fn print_statement(&mut self, chunk: &mut Chunk) -> Result<'src> {
-        self.must_consume(TokenType::Print)?;
-        self.expression(chunk)?;
-        chunk.add_op(Op::Print, 0);
-        self.must_consume(TokenType::Semicolon)
-    }
-
-    pub fn expr_statement(&mut self, chunk: &mut Chunk) -> Result<'src> {
+    pub fn expr_statement(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
         self.expression(chunk)?;
         chunk.add_op(Op::Pop, 0);
-        self.must_consume(TokenType::Semicolon)
+        match self.scanner.next_if(|t| t.ttype == TokenType::Semicolon) {
+            Some(_) => Ok(()),
+            None => {
+                let location = self.scanner.peek().cloned();
+                Err(self.error_at_or_end(location, ParseErrorKind::NoSemicolonAfterExpression))
+            },
+        }
     }
 
-    pub fn statement(&mut self, chunk: &mut Chunk) -> Result<'src> {
+    pub fn statement(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
         match self.scanner.peek().unwrap().ttype {
-            TokenType::Print => self.print_statement(chunk),
+            TokenType::Print => {
+                let print_token = self.scanner.next().unwrap();
+                self.print_statement(print_token, chunk)
+            },
             _ => self.expr_statement(chunk),
         }
     }
 
     pub fn synchronize(&mut self) {
         use TokenType::*;
-        while let Some(token) = self.scanner.next_if(
+
+        while let Some(_token) = self.scanner.next_if(
             |tok| ![Semicolon, Class, Fun, Var, For, If, While, Print, Return].contains(&tok.ttype)
         ) {}
-
-
     }
 
     pub fn declaration(&mut self, chunk: &mut Chunk) {
@@ -517,16 +563,17 @@ impl<'src> Parser<'src> {
 }
 
 #[cfg(test)]
-pub fn compile_expr(source: &str, chunk: &mut Chunk) {
+pub fn compile_expr<'src>(source: &'src str, chunk: &mut Chunk) -> Result<'src, ()>{
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
-    parser.expression(chunk);
+    parser.expression(chunk)
 }
 
-pub fn compile(source: &str, chunk: &mut Chunk) {
+pub fn compile<'src>(source: &'src str, chunk: &mut Chunk) -> Vec<ParseError<'src>> {
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
     parser.compile(chunk);
+    return parser.errors;
 }
 
 #[cfg(test)]
@@ -549,39 +596,48 @@ mod tests {
             vec![
                 Token {
                     ttype: TokenType::Print,
-                    span: "print"
+                    span: "print",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::LeftParen,
-                    span: "("
+                    span: "(",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: "1"
+                    span: "1",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::Plus,
-                    span: "+"
+                    span: "+",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: "2"
+                    span: "2",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::Star,
-                    span: "*"
+                    span: "*",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: "3"
+                    span: "3",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::RightParen,
-                    span: ")"
+                    span: ")",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::Semicolon,
-                    span: ";"
+                    span: ";",
+                    line: 1,
                 }
             ]
         );
@@ -609,15 +665,18 @@ mod tests {
             vec![
                 Token {
                     ttype: TokenType::Number,
-                    span: "1"
+                    span: "1",
+                    line: 1,
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: "2"
+                    span: "2",
+                    line: 2,
                 },
                 Token {
                     ttype: TokenType::Number,
-                    span: "3"
+                    span: "3",
+                    line: 3,
                 }
             ]
         );
@@ -633,7 +692,8 @@ mod tests {
             tokens,
             vec![Token {
                 ttype: TokenType::String,
-                span: "\"hello world\""
+                span: "\"hello world\"",
+                line: 1,
             }]
         );
 
@@ -644,7 +704,8 @@ mod tests {
         let scanner = Scanner::new(source);
         let mut parser = Parser::new(scanner);
         let mut chunk = Chunk::new();
-        parser.expression(&mut chunk);
+        let result = parser.expression(&mut chunk);
+        assert_eq!(result, Ok(()));
         assert!(chunk.instr_eq(expected));
     }
 
@@ -653,7 +714,7 @@ mod tests {
         let mut parser = Parser::new(scanner);
         let mut chunk = Chunk::new();
         parser.compile(&mut chunk);
-        assert!(parser.errors.is_empty());
+        assert_eq!(parser.errors, vec![]);
         assert!(chunk.instr_eq(expected));
     }
 
@@ -725,8 +786,9 @@ mod tests {
         let scanner = Scanner::new(source);
         let mut parser = Parser::new(scanner);
         let mut chunk = Chunk::new();
-        parser.expression(&mut chunk);
+        let result = parser.expression(&mut chunk);
 
+        assert_eq!(result, Ok(()));
         assert_eq!(chunk.allocations.len(), 1);
         assert_eq!(chunk.constants.len(), 1);
     }
@@ -775,37 +837,5 @@ mod tests {
         );
 
         test_parse_program(source, &expected);
-    }
-
-    #[test]
-    fn no_line_breaks() {
-        let line_map = LineMap::new("0123456789");
-
-        for i in 0..=9 {
-            assert_eq!(line_map.pos_to_line(i), 1);
-        }
-    }
-
-    #[test]
-    fn some_line_breaks() {
-        let line_map = LineMap::new("012\n456\n89\n");
-
-        for i in 0..=2 {
-            assert_eq!(line_map.pos_to_line(i), 1);
-        }
-
-        assert_eq!(line_map.pos_to_line(3), 1);
-
-        for i in 4..=6 {
-            assert_eq!(line_map.pos_to_line(i), 2);
-        }
-
-        assert_eq!(line_map.pos_to_line(7), 2);
-
-        for i in 8..=9 {
-            assert_eq!(line_map.pos_to_line(i), 3);
-        }
-
-        assert_eq!(line_map.pos_to_line(10), 3);
     }
 }

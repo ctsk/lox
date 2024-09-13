@@ -16,6 +16,8 @@ pub enum VMError {
     Runtime(Rc<str>, usize),
 }
 
+type Result<T> = std::result::Result<T, VMError>;
+
 impl VM {
     pub fn new() -> VM {
         VM {
@@ -44,13 +46,13 @@ impl VM {
         self.stack.push(value);
     }
 
-    fn pop(&mut self) -> Result<Value, VMError> {
+    fn pop(&mut self) -> Result<Value> {
         self.stack
             .pop()
             .ok_or(self.runtime_err("Attempt to pop of empty stack."))
     }
 
-    fn pop_num(&mut self) -> Result<f64, VMError> {
+    fn pop_num(&mut self) -> Result<f64> {
         let top_of_stack = self.pop()?;
         top_of_stack
             .as_num()
@@ -60,15 +62,15 @@ impl VM {
     pub fn stdrun(
         &mut self,
         chunk: &Chunk,
-    ) -> Result<Option<(Value, LinkedList<GcHandle>)>, VMError> {
-        return self.run(chunk, &mut io::stdout());
+    ) -> Result<()> {
+        self.run(chunk, &mut io::stdout())
     }
 
     pub fn run<Output: io::Write>(
         &mut self,
         chunk: &Chunk,
         output: &mut Output,
-    ) -> Result<Option<(Value, LinkedList<GcHandle>)>, VMError> {
+    ) -> Result<()> {
         let mut allocations: LinkedList<GcHandle> = LinkedList::new();
 
         while self.pc < chunk.code.len() {
@@ -180,17 +182,7 @@ impl VM {
             }
         }
 
-        match self.stack.pop() {
-            None => Ok(None),
-            Some(result_value) => {
-                let escaping_allocs = allocations
-                    .into_iter()
-                    .filter(|handle| Value::from(handle.get_object()) == result_value)
-                    .collect();
-
-                Ok(Some((result_value, escaping_allocs)))
-            }
-        }
+        Ok(())
     }
 }
 
@@ -201,7 +193,7 @@ mod tests {
     use super::{Chunk, Op, VMError, Value, VM};
 
     #[test]
-    fn simple_arithmetic() {
+    fn simple_arithmetic() -> Result<(), VMError>{
         let chunk = Chunk::new_with(
             vec![
                 Op::Constant { offset: 0 },
@@ -229,11 +221,13 @@ mod tests {
         );
 
         let mut vm = VM::new();
-        let (result, allocs) = vm.stdrun(&chunk).unwrap().unwrap();
+        vm.stdrun(&chunk)?;
 
-        assert_eq!(result, Value::from(3.1416));
-        assert!(vm.stack.is_empty());
-        assert!(allocs.is_empty());
+        let tos = vm.stack.last().unwrap();
+
+        assert_eq!(*tos, 3.1416.into());
+
+        Ok(())
     }
 
     #[test]
@@ -255,24 +249,24 @@ mod tests {
             vec![],
             LinkedList::new(),
         );
-        let mut vm = VM::new();
-        let (result, allocs) = vm.stdrun(&chunk)?.unwrap();
 
-        assert_eq!(result, true.into());
-        assert!(vm.stack.is_empty());
-        assert!(allocs.is_empty());
+        let mut vm = VM::new();
+        vm.stdrun(&chunk)?;
+
+        assert_eq!(vm.stack, vec![Value::Bool(true)]);
 
         Ok(())
     }
 
     #[test]
-    fn not_nil_is_true() {
+    fn not_nil_is_true() -> Result<(), VMError>{
         let chunk = Chunk::new_with(vec![Op::Nil, Op::Not], vec![], vec![], LinkedList::new());
-        let mut vm = VM::new();
-        let (result, allocs) = vm.stdrun(&chunk).unwrap().unwrap();
 
-        assert_eq!(result, true.into());
-        assert!(vm.stack.is_empty());
-        assert!(allocs.is_empty());
+        let mut vm = VM::new();
+        vm.stdrun(&chunk)?;
+
+        assert_eq!(vm.stack, vec![Value::Bool(true)]);
+
+        Ok(())
     }
 }
