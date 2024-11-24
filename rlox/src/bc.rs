@@ -1,4 +1,4 @@
-use crate::gc::{GcHandle, Object, ObjectType};
+use crate::gc::{GcHandle, Object};
 use std::collections::LinkedList;
 use std::convert::From;
 use std::fmt::Debug;
@@ -22,7 +22,10 @@ pub enum Op {
     Less,
 
     Print,
-    Pop
+    Pop,
+
+    DefineGlobal { offset: u8 },
+    GetGlobal { offset: u8 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,11 +90,7 @@ impl Display for Value {
                     None => write!(f, "{}", stringified),
                 }
             }
-            Value::Obj(object) => match object.get_otype() {
-                ObjectType::String => {
-                    write!(f, "{}", object)
-                }
-            },
+            Value::Obj(object) => write!(f, "{}", object),
         }
     }
 }
@@ -135,6 +134,11 @@ impl Chunk {
         self.code.push(op);
         self.debug_info.push(line);
 
+        self
+    }
+
+    pub fn add_constant_value(&mut self, value: Value) -> &mut Self {
+        self.constants.push(value);
         self
     }
 
@@ -216,26 +220,25 @@ impl fmt::Debug for TraceInfo<'_> {
 
 mod tests {
 
+
     #[test]
     fn string_value_equality() {
         use crate::bc::Value;
-        use crate::gc::allocate_string;
+        use crate::gc::GC;
 
         let s1 = "bla5";
         let s2 = "bla6";
 
-        unsafe {
-            let o1 = allocate_string(s1).unwrap();
-            let o2 = allocate_string(s2).unwrap();
-            let o3 = allocate_string(s2).unwrap();
-            let v1 = Value::from(o1.get_object());
-            let v2 = Value::from(o2.get_object());
-            let v3 = Value::from(o3.get_object());
-            let v4 = v2.clone();
+        let o1 = GC::new_string(s1);
+        let o2 = GC::new_string(s2);
+        let o3 = GC::new_string(s2);
+        let v1 = Value::from(o1.get_object());
+        let v2 = Value::from(o2.get_object());
+        let v3 = Value::from(o3.get_object());
+        let v4 = v2.clone();
 
-            assert_ne!(v1, v2);
-            assert_eq!(v2, v3);
-            assert_eq!(v2, v4);
-        }
+        assert_ne!(v1, v2);
+        assert_eq!(v2, v3);
+        assert_eq!(v2, v4);
     }
 }

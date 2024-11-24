@@ -1,10 +1,12 @@
-use std::fmt;
+#![allow(dead_code, unused)]
+
+use std::{collections::hash_map, fmt};
 use std::iter::Peekable;
 use std::str::CharIndices;
 use std::collections::HashMap;
 
-use crate::bc::{Chunk, Op};
-use crate::gc::allocate_string;
+use crate::bc::Value;
+use crate::{bc::{Chunk, Op}, gc::GC};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ScanErrorKind {
@@ -285,24 +287,22 @@ struct Parser<'src> {
 #[derive(Debug, PartialEq)]
 pub enum ParseErrorKind {
     InvalidNumber,
-    UnexpectedEOF,
     IncompleteExpression,
     NoSemicolonAfterValue,
     NoSemicolonAfterExpression,
+    NoVariableName,
+    NoSemicolonAfterVarDecl,
 }
 
 impl fmt::Display for ParseErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ParseErrorKind::InvalidNumber => todo!(),
-            ParseErrorKind::UnexpectedEOF => todo!(),
-            ParseErrorKind::IncompleteExpression => {
-                write!(f, "Expect expression.")
-            },
-            ParseErrorKind::NoSemicolonAfterValue => todo!(),
-            ParseErrorKind::NoSemicolonAfterExpression => {
-                write!(f, "Expect ';' after expression.")
-            },
+            ParseErrorKind::IncompleteExpression => write!(f, "Expect expression."),
+            ParseErrorKind::NoSemicolonAfterValue => write!(f, "Expect ';' after value."),
+            ParseErrorKind::NoSemicolonAfterExpression => write!(f, "Expect ';' after expression."),
+            ParseErrorKind::NoVariableName => write!(f, "Expect variable name."),
+            ParseErrorKind::NoSemicolonAfterVarDecl => write!(f, "Expect ';' after variable declaration."),
         }
     }
 }
@@ -336,7 +336,7 @@ enum Associativity {
     NonAssoc,
 }
 
-#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 enum Precedence {
     None,
     Assignment,
@@ -409,6 +409,21 @@ impl<'src> Parser<'src> {
         }
     }
 
+    fn add_string(&mut self, chunk: &mut Chunk, string: &'src str) -> u8 {
+        match self.intern_table.entry(string) {
+            hash_map::Entry::Occupied(entry) => {
+                entry.get().clone()
+            },
+            hash_map::Entry::Vacant(entry) => {
+                let handle = GC::new_string(string);
+                chunk.add_constant_value(Value::from(handle.get_object()));
+                chunk.allocations.push_front(handle);
+                let offset = chunk.constants.len() as u8 - 1;
+                entry.insert(offset).clone()
+            },
+        }
+    }
+
     fn _expression(&mut self, chunk: &mut Chunk, min_prec: Precedence) -> Result<'src, ()> {
         match self.scanner.next() {
             None => return Err(self.error_end(ParseErrorKind::IncompleteExpression)),
@@ -430,18 +445,13 @@ impl<'src> Parser<'src> {
                 }
                 TokenType::String => {
                     let without_quotes = &token.span[1..(token.span.len() - 1)];
-                    match self.intern_table.get(without_quotes) {
-                        Some(&index) => {
-                            chunk.add_op(Op::Constant { offset: index }, token.line);
-                        }
-                        None => {
-                            let object = unsafe { allocate_string(without_quotes) }.unwrap();
-                            chunk.add_constant(object.get_object().into(), token.line);
-                            self.intern_table
-                                .insert(without_quotes, chunk.constants.len() as u8 - 1);
-                            chunk.allocations.push_front(object);
-                        }
-                    };
+                    let offset = self.add_string(chunk, without_quotes);
+                    chunk.add_op(
+                        Op::Constant {
+                            offset,
+                        },
+                        token.line
+                    );
                 }
                 TokenType::LeftParen => {
                     self._expression(chunk, Precedence::None)?;
@@ -455,6 +465,10 @@ impl<'src> Parser<'src> {
                 }
                 TokenType::False => {
                     chunk.add_op(Op::False, token.line);
+                }
+                TokenType::Identifier => {
+                    let offset = self.add_string(chunk, token.span);
+                    chunk.add_op(Op::GetGlobal {offset}, token.line);
                 }
                 _ => {
                     return Err(self.error_at(token, ParseErrorKind::IncompleteExpression));
@@ -504,31 +518,31 @@ impl<'src> Parser<'src> {
         self._expression(chunk, Precedence::None)
     }
 
+    pub fn must_consume(&mut self, expected: TokenType, error_kind: ParseErrorKind) -> Result<'src, Token<'src>> {
+        match self.scanner.peek().cloned() {
+            Some(token) if token.ttype == expected => Ok(self.scanner.next().unwrap()),
+            Some(token) => Err(self.error_at(token.clone(), error_kind)),
+            _ => Err(self.error_end(error_kind)),
+        }
+    }
+
     pub fn print_statement(&mut self, print_token: Token<'src>, chunk: &mut Chunk) -> Result<'src, ()> {
         self.expression(chunk)?;
         chunk.add_op(Op::Print, print_token.line);
-        match self.scanner.next_if(|t| t.ttype == TokenType::Semicolon) {
-            Some(_) => Ok(()),
-            None => {
-                let location = self.scanner.peek().cloned();
-                Err(self.error_at_or_end(location, ParseErrorKind::NoSemicolonAfterValue))
-            },
-        }
+        self.must_consume(TokenType::Semicolon, ParseErrorKind::NoSemicolonAfterValue).map(|_| ())
     }
 
-    pub fn expr_statement(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
+    fn expr_statement(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
         self.expression(chunk)?;
-        chunk.add_op(Op::Pop, 0);
-        match self.scanner.next_if(|t| t.ttype == TokenType::Semicolon) {
-            Some(_) => Ok(()),
-            None => {
-                let location = self.scanner.peek().cloned();
-                Err(self.error_at_or_end(location, ParseErrorKind::NoSemicolonAfterExpression))
-            },
-        }
+        let pop_line =
+            self.must_consume(TokenType::Semicolon, ParseErrorKind::NoSemicolonAfterExpression)
+                .map(|tok| tok.line)?;
+        chunk.add_op(Op::Pop, pop_line);
+
+        Ok(())
     }
 
-    pub fn statement(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
+    fn statement(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
         match self.scanner.peek().unwrap().ttype {
             TokenType::Print => {
                 let print_token = self.scanner.next().unwrap();
@@ -538,7 +552,7 @@ impl<'src> Parser<'src> {
         }
     }
 
-    pub fn synchronize(&mut self) {
+    fn synchronize(&mut self) {
         use TokenType::*;
 
         while let Some(_token) = self.scanner.next_if(
@@ -546,13 +560,42 @@ impl<'src> Parser<'src> {
         ) {}
     }
 
-    pub fn declaration(&mut self, chunk: &mut Chunk) {
-        self.statement(chunk).unwrap_or_else(
-            |err| {
-                self.errors.push(err);
-                self.synchronize();
+    fn var_declaration(&mut self, var_token: Token<'src>, chunk: &mut Chunk) ->  Result<'src, ()> {
+        let ident = self.must_consume(TokenType::Identifier, ParseErrorKind::NoVariableName)?;
+        let offset = self.add_string(chunk, ident.span);
+
+        match self.scanner.peek() {
+            Some(token) if token.ttype == TokenType::Equal => {
+                self.expression(chunk)?;
+            },
+            _ => {
+                chunk.add_op(Op::Nil, ident.line);
             }
-        )
+        }
+
+        chunk.add_op(Op::DefineGlobal { offset }, ident.line);
+
+        self.must_consume(TokenType::Semicolon, ParseErrorKind::NoSemicolonAfterVarDecl)?;
+
+        Ok(())
+    }
+
+    pub fn declaration(&mut self, chunk: &mut Chunk) {
+        let peeked = self.scanner.peek().unwrap().clone();
+        match peeked.ttype {
+            TokenType::Var => {
+                self.scanner.next();
+                self.var_declaration(peeked, chunk);
+            },
+            _ => {
+                self.statement(chunk).unwrap_or_else(
+                    |err| {
+                        self.errors.push(err);
+                        self.synchronize();
+                    }
+                )
+            }
+        }
     }
 
     pub fn compile(&mut self, chunk: &mut Chunk) {
@@ -799,7 +842,7 @@ mod tests {
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
             vec![Constant { offset: 0 }, Constant { offset: 1 }, Add, Print],
-            vec![],
+            vec![1, 1, 1, 1],
             vec![Value::from(1.0), Value::from(1.0)],
             LinkedList::new(),
         );
@@ -810,14 +853,14 @@ mod tests {
     #[test]
     fn basic_print_string_statement() {
         let source = "print \"string\";";
-        let allocation = unsafe { allocate_string("string").unwrap() };
+        let allocation = GC::new_string("string");
         let object = allocation.get_object();
         let mut allocations = LinkedList::new();
         allocations.push_front(allocation);
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
             vec![Constant { offset: 0 }, Print],
-            vec![],
+            vec![1, 1],
             vec![Value::from(object)],
             allocations,
         );
@@ -831,8 +874,37 @@ mod tests {
         use crate::bc::Op::*;
         let expected = Chunk::new_with(
             vec![Constant { offset: 0 }, Constant { offset: 1 }, Divide, Pop],
-            vec![],
+            vec![1, 1, 1, 1],
             vec![Value::from(1.0), Value::from(1.0)],
+            LinkedList::new(),
+        );
+
+        test_parse_program(source, &expected);
+    }
+
+    #[test]
+    fn basic_var_decl() {
+        let source = "var x;";
+        use crate::bc::Op::*;
+        let x = GC::new_string("x");
+        let expected = Chunk::new_with(
+            vec![Nil, DefineGlobal { offset: 0 }],
+            vec![1, 1],
+            vec![x.get_object().into()],
+            LinkedList::new(),
+        );
+
+        test_parse_program(source, &expected);
+    }
+
+    fn basic_var_decl_with_initializer() {
+        let source = "var x = 1 + 1;";
+        use crate::bc::Op::*;
+        let x = GC::new_string("x");
+        let expected = Chunk::new_with(
+            vec![Constant {offset: 1}, Constant {offset: 2}, Add, DefineGlobal { offset: 0 }],
+            vec![],
+            vec![x.get_object().into(), Value::from(1.0), Value::from(1.0)],
             LinkedList::new(),
         );
 

@@ -1,6 +1,6 @@
 use crate::bc::{Chunk, Op, TraceInfo, Value};
-use crate::gc::{concat_string, GcHandle, ObjectType};
-use std::collections::LinkedList;
+use crate::gc::{GcHandle, ObjString, ObjectType, GC};
+use std::collections::{HashMap, LinkedList};
 use std::io;
 use std::rc::Rc;
 
@@ -72,6 +72,7 @@ impl VM {
         output: &mut Output,
     ) -> Result<()> {
         let mut allocations: LinkedList<GcHandle> = LinkedList::new();
+        let mut globals: HashMap<ObjString, Value> = HashMap::new();
 
         while self.pc < chunk.code.len() {
             let instr = chunk.code[self.pc];
@@ -126,7 +127,8 @@ impl VM {
                                 match a {
                                     Value::Obj(a) => match a.get_otype() {
                                         ObjectType::String => {
-                                            let new_obj = unsafe { concat_string(a, b).unwrap() };
+                                            let (a, b) = (a.downcast().unwrap(), b.downcast().unwrap());
+                                            let new_obj = GC::new_concat_string(a, b);
                                             self.push(Value::from(new_obj.get_object()));
                                             allocations.push_front(new_obj);
                                             Ok(())
@@ -178,6 +180,34 @@ impl VM {
                 },
                 Op::Pop => {
                     self.pop()?;
+                },
+                Op::DefineGlobal { offset } => {
+                    let ident = chunk.constants[offset as usize].clone();
+                    if let Value::Obj(name) = ident {
+                        let name = name.downcast::<ObjString>().unwrap();
+                        globals.entry(name).or_insert(self.pop()?);
+                        Ok(())
+                    } else {
+                        unreachable!()
+                    }?
+                },
+                Op::GetGlobal { offset } => {
+                    let ident = match chunk.constants[offset as usize] {
+                        Value::Obj(object) => object.downcast::<ObjString>().unwrap(),
+                        _ => todo!(),
+                    };
+
+                    if let Some(value) = globals.get(&ident) {
+                        self.push(value.clone());
+
+                        Ok(())
+                    } else {
+                        Err(
+                        VMError::Runtime(
+                            format!("Undefined variable '{}'.", ident).into(),
+                            self.pc,
+                        ))
+                    }?
                 }
             }
         }
@@ -189,6 +219,8 @@ impl VM {
 #[cfg(test)]
 mod tests {
     use std::collections::LinkedList;
+
+    use crate::gc::GC;
 
     use super::{Chunk, Op, VMError, Value, VM};
 
@@ -266,6 +298,31 @@ mod tests {
         vm.stdrun(&chunk)?;
 
         assert_eq!(vm.stack, vec![Value::Bool(true)]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_write_globals() -> Result<(), VMError> {
+        let var = GC::new_string("global");
+        use Op::*;
+        let chunk = Chunk::new_with(
+            vec![
+                Constant { offset: 0 },
+                DefineGlobal { offset: 1 },
+                Constant { offset: 2 },
+                GetGlobal { offset: 1 },
+                Multiply,
+            ],
+            vec![],
+            vec![Value::from(5.0), Value::from(var.get_object()), Value::from(6.0)],
+            LinkedList::new()
+        );
+
+        let mut vm = VM::new();
+        vm.stdrun(&chunk)?;
+
+        assert_eq!(vm.stack, vec![Value::Number(30.0)]);
 
         Ok(())
     }
