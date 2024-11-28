@@ -1,6 +1,6 @@
 use crate::bc::{Chunk, Op, TraceInfo, Value};
 use crate::gc::{GcHandle, ObjString, ObjectType, GC};
-use std::collections::{HashMap, LinkedList};
+use std::collections::{hash_map, HashMap, LinkedList};
 use std::io;
 use std::rc::Rc;
 
@@ -203,12 +203,35 @@ impl VM {
                         Ok(())
                     } else {
                         Err(
-                        VMError::Runtime(
-                            format!("Undefined variable '{}'.", ident).into(),
-                            self.pc,
-                        ))
+                            VMError::Runtime(
+                                format!("Undefined variable '{}'.", ident).into(),
+                                self.pc,
+                            )
+                        )
                     }?
-                }
+                },
+                Op::SetGlobal { offset } => {
+                    let ident = match chunk.constants[offset as usize] {
+                        Value::Obj(object) => object.downcast::<ObjString>().unwrap(),
+                        _ => todo!(),
+                    };
+
+                    match globals.entry(ident) {
+                        hash_map::Entry::Occupied(mut entry) => {
+                            let v = self.stack.last().unwrap();
+                            entry.insert(v.clone());
+                            Ok(())
+                        },
+                        hash_map::Entry::Vacant(_) => {
+                            Err(
+                                VMError::Runtime(
+                                    format!("Undefined variable '{}'.", ident).into(),
+                                    self.pc,
+                                )
+                            )
+                        },
+                    }?
+                },
             }
         }
 
@@ -303,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn read_write_globals() -> Result<(), VMError> {
+    fn define_read_globals() -> Result<(), VMError> {
         let var = GC::new_string("global");
         use Op::*;
         let chunk = Chunk::new_with(
@@ -323,6 +346,34 @@ mod tests {
         vm.stdrun(&chunk)?;
 
         assert_eq!(vm.stack, vec![Value::Number(30.0)]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn define_write_read_globals() -> Result<(), VMError> {
+        let var = GC::new_string("global");
+        use Op::*;
+        let chunk = Chunk::new_with(
+            vec![
+                Constant { offset: 0 },
+                DefineGlobal { offset: 1 },
+                GetGlobal { offset: 1 },
+                Constant { offset: 2 },
+                Add,
+                SetGlobal { offset: 1 },
+                Pop,
+                GetGlobal { offset: 1 },
+            ],
+            vec![1; 7],
+            vec![Value::from(5.0), Value::from(var.get_object()), Value::from(6.0)],
+            LinkedList::new()
+        );
+
+        let mut vm = VM::new();
+        vm.stdrun(&chunk)?;
+
+        assert_eq!(vm.stack, vec![Value::Number(11.0)]);
 
         Ok(())
     }

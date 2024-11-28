@@ -468,7 +468,14 @@ impl<'src> Parser<'src> {
                 }
                 TokenType::Identifier => {
                     let offset = self.add_string(chunk, token.span);
-                    chunk.add_op(Op::GetGlobal {offset}, token.line);
+
+                    if self.scanner.peek().is_some_and(|t| t.ttype == TokenType::Equal) {
+                        self.scanner.next();
+                        self._expression(chunk, Precedence::Assignment)?;
+                        chunk.add_op(Op::SetGlobal {offset}, token.line);
+                    } else {
+                        chunk.add_op(Op::GetGlobal {offset}, token.line);
+                    };
                 }
                 _ => {
                     return Err(self.error_at(token, ParseErrorKind::IncompleteExpression));
@@ -566,6 +573,7 @@ impl<'src> Parser<'src> {
 
         match self.scanner.peek() {
             Some(token) if token.ttype == TokenType::Equal => {
+                self.scanner.next();
                 self.expression(chunk)?;
             },
             _ => {
@@ -757,6 +765,7 @@ mod tests {
         let mut parser = Parser::new(scanner);
         let mut chunk = Chunk::new();
         parser.compile(&mut chunk);
+
         assert_eq!(parser.errors, vec![]);
         assert!(chunk.instr_eq(expected));
     }
@@ -897,14 +906,32 @@ mod tests {
         test_parse_program(source, &expected);
     }
 
+    #[test]
     fn basic_var_decl_with_initializer() {
         let source = "var x = 1 + 1;";
         use crate::bc::Op::*;
         let x = GC::new_string("x");
         let expected = Chunk::new_with(
             vec![Constant {offset: 1}, Constant {offset: 2}, Add, DefineGlobal { offset: 0 }],
-            vec![],
+            vec![1, 1, 1, 1],
             vec![x.get_object().into(), Value::from(1.0), Value::from(1.0)],
+            LinkedList::new(),
+        );
+
+        test_parse_program(source, &expected);
+    }
+
+    #[test]
+    fn assign() {
+        let source = "var x = y = z;";
+        use crate::bc::Op::*;
+        let x = GC::new_string("x");
+        let y = GC::new_string("y");
+        let z = GC::new_string("z");
+        let expected = Chunk::new_with(
+            vec![GetGlobal { offset: 2 }, SetGlobal { offset: 1 }, DefineGlobal { offset: 0 }],
+            vec![1, 1, 1],
+            vec![x.get_object().into(), y.get_object().into(), z.get_object().into()],
             LinkedList::new(),
         );
 
