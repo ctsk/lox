@@ -262,7 +262,7 @@ impl<'src> Iterator for Scanner<'src> {
                     } else if start_ch == '"' {
                         match self.scan_string() {
                             Ok(end) => self.make_token(TokenType::String, start_line, start_pos, end),
-                            Err(end) => self.make_token(TokenType::Error(ScanErrorKind::UndelimitedString), start_line, start_pos, end),
+                            Err(end) => self.make_token(TokenType::Error(ScanErrorKind::UndelimitedString), start_line, start_pos, end - 1),
                         }
                     } else {
                         panic!("Invalid character");
@@ -292,6 +292,9 @@ pub enum ParseErrorKind {
     NoSemicolonAfterExpression,
     NoVariableName,
     NoSemicolonAfterVarDecl,
+    InvalidAssignmentTarget,
+    InvalidVariableName,
+    ScanError(ScanErrorKind),
 }
 
 impl fmt::Display for ParseErrorKind {
@@ -303,6 +306,10 @@ impl fmt::Display for ParseErrorKind {
             ParseErrorKind::NoSemicolonAfterExpression => write!(f, "Expect ';' after expression."),
             ParseErrorKind::NoVariableName => write!(f, "Expect variable name."),
             ParseErrorKind::NoSemicolonAfterVarDecl => write!(f, "Expect ';' after variable declaration."),
+            ParseErrorKind::InvalidAssignmentTarget => write!(f, "Invalid assignment target."),
+            ParseErrorKind::InvalidVariableName => write!(f, "Expect variable name."),
+            ParseErrorKind::ScanError(ScanErrorKind::UndelimitedString) =>
+                write!(f, "Unterminated string.")
         }
     }
 }
@@ -371,6 +378,7 @@ impl<'src> Parser<'src> {
             Star | Slash => Some(Precedence::Factor),
             EqualEqual | BangEqual => Some(Precedence::Equality),
             Greater | GreaterEqual | Less | LessEqual => Some(Precedence::Comparison),
+            Equal => Some(Precedence::Assignment),
             _ => None,
         }
     }
@@ -470,12 +478,20 @@ impl<'src> Parser<'src> {
                     let offset = self.add_string(chunk, token.span);
 
                     if self.scanner.peek().is_some_and(|t| t.ttype == TokenType::Equal) {
-                        self.scanner.next();
-                        self._expression(chunk, Precedence::Assignment)?;
-                        chunk.add_op(Op::SetGlobal {offset}, token.line);
+                        if (min_prec <= Precedence::Assignment) {
+                            self.scanner.next();
+                            self._expression(chunk, Precedence::Assignment)?;
+                            chunk.add_op(Op::SetGlobal {offset}, token.line);
+                        } else {
+                            let eq_token = self.scanner.next().unwrap();
+                            return Err(self.error_at(eq_token, ParseErrorKind::InvalidAssignmentTarget));
+                        }
                     } else {
                         chunk.add_op(Op::GetGlobal {offset}, token.line);
                     };
+                }
+                TokenType::Error(err) => {
+                    return Err(self.error_at(token, ParseErrorKind::ScanError(err)));
                 }
                 _ => {
                     return Err(self.error_at(token, ParseErrorKind::IncompleteExpression));
@@ -514,6 +530,7 @@ impl<'src> Parser<'src> {
                 TokenType::BangEqual => chunk.add_op(Op::Equal, op.line).add_op(Op::Not, op.line),
                 TokenType::GreaterEqual => chunk.add_op(Op::Less, op.line).add_op(Op::Not, op.line),
                 TokenType::LessEqual => chunk.add_op(Op::Greater, op.line).add_op(Op::Not, op.line),
+                TokenType::Equal => {return Err(self.error_at(op, ParseErrorKind::InvalidAssignmentTarget))},
                 _ => unreachable!(),
             };
         }
@@ -562,13 +579,32 @@ impl<'src> Parser<'src> {
     fn synchronize(&mut self) {
         use TokenType::*;
 
-        while let Some(_token) = self.scanner.next_if(
-            |tok| ![Semicolon, Class, Fun, Var, For, If, While, Print, Return].contains(&tok.ttype)
-        ) {}
+        while let Some(peek) = self.scanner.peek() {
+            if peek.ttype == TokenType::Semicolon {
+                self.scanner.next();
+                return;
+            }
+
+            if [Class, Fun, Var, For, If, While, Print, Return].contains(&peek.ttype) {
+                return;
+            }
+
+            self.scanner.next();
+        }
+    }
+
+    fn variable(&mut self) -> Result<'src, Token<'src>> {
+        let ident = self.must_consume(TokenType::Identifier, ParseErrorKind::NoVariableName)?;
+
+        if (ident.span == "nil") {
+            Err(self.error_at(ident, ParseErrorKind::InvalidVariableName))
+        } else {
+            Ok(ident)
+        }
     }
 
     fn var_declaration(&mut self, var_token: Token<'src>, chunk: &mut Chunk) ->  Result<'src, ()> {
-        let ident = self.must_consume(TokenType::Identifier, ParseErrorKind::NoVariableName)?;
+        let ident = self.variable()?;
         let offset = self.add_string(chunk, ident.span);
 
         match self.scanner.peek() {
@@ -593,7 +629,10 @@ impl<'src> Parser<'src> {
         match peeked.ttype {
             TokenType::Var => {
                 self.scanner.next();
-                self.var_declaration(peeked, chunk);
+                if let Err(err) = self.var_declaration(peeked, chunk) {
+                    self.errors.push(err);
+                    self.synchronize();
+                };
             },
             _ => {
                 self.statement(chunk).unwrap_or_else(

@@ -1,19 +1,55 @@
 use crate::bc::{Chunk, Op, TraceInfo, Value};
 use crate::gc::{GcHandle, ObjString, ObjectType, GC};
 use std::collections::{hash_map, HashMap, LinkedList};
-use std::io;
-use std::rc::Rc;
+use std::{fmt, io};
 
 pub struct VM {
     pub trace: bool,
     stack: Vec<Value>,
     pc: usize,
+    line: usize,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum VMError {
-    // Compile,
-    Runtime(Rc<str>, usize),
+#[derive(Debug, PartialEq, Eq)]
+pub struct VMError {
+    line: usize,
+    kind: VMErrorKind,
+    msg: Option<String>,
+}
+
+impl VMError {
+    fn new(kind: VMErrorKind, line: usize) -> Self {
+        VMError { line, kind, msg: None }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum VMErrorKind {
+    InvalidAddOperands,
+    InvalidMathOperands,
+    InvalidMathOperand,
+    UndefinedVariable,
+    PopFromEmptyStack,
+}
+
+impl fmt::Display for VMError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            VMErrorKind::InvalidAddOperands =>
+                {write!(f, "Operands must be two numbers or two strings.")?; }
+            VMErrorKind::InvalidMathOperands =>
+                {write!(f, "Operands must be numbers.")?; }
+            VMErrorKind::InvalidMathOperand =>
+                {write!(f, "Operand must be a number.")?; }
+            _ => {}
+        };
+
+        if let Some(msg) = &self.msg {
+            write!(f, "{}", msg)?
+        }
+
+        write!(f, "\n[line {}]", self.line)
+    }
 }
 
 type Result<T> = std::result::Result<T, VMError>;
@@ -24,6 +60,7 @@ impl VM {
             trace: false,
             stack: Vec::new(),
             pc: 0,
+            line: 0,
         }
     }
 
@@ -31,33 +68,39 @@ impl VM {
         self.trace = trace;
     }
 
-    fn runtime_err(&self, msg: &'static str) -> VMError {
-        VMError::Runtime(msg.into(), self.pc)
-    }
-
-    fn type_err(&self, expected: &'static str, found: Value) -> VMError {
-        VMError::Runtime(
-            format!("Expected: {:}, Found: {:?}", expected, found).into(),
-            self.pc,
-        )
-    }
-
     fn push(&mut self, value: Value) {
         self.stack.push(value);
+    }
+
+    fn err(&mut self, kind: VMErrorKind) -> VMError {
+        VMError::new(
+            kind,
+            self.line
+        )
     }
 
     fn pop(&mut self) -> Result<Value> {
         self.stack
             .pop()
-            .ok_or(self.runtime_err("Attempt to pop of empty stack."))
+            .ok_or(self.err(VMErrorKind::PopFromEmptyStack))
     }
 
     fn pop_num(&mut self) -> Result<f64> {
         let top_of_stack = self.pop()?;
         top_of_stack
             .as_num()
-            .ok_or(self.type_err("Number", top_of_stack))
+            .ok_or(self.err(VMErrorKind::InvalidMathOperand))
     }
+
+    fn pop_nums(&mut self) -> Result<(f64, f64)> {
+        let a = self.pop()?;
+        let b = self.pop()?;
+        match (a.as_num(), b.as_num()) {
+            (Some(a), Some(b)) => Ok((a, b)),
+            _ => Err(self.err(VMErrorKind::InvalidMathOperands))
+        }
+    }
+
 
     pub fn stdrun(
         &mut self,
@@ -74,8 +117,17 @@ impl VM {
         let mut allocations: LinkedList<GcHandle> = LinkedList::new();
         let mut globals: HashMap<ObjString, Value> = HashMap::new();
 
+        let err = |kind: VMErrorKind, msg: Option<String>| -> VMError {
+            VMError {
+                line: chunk.debug_info[self.pc - 1],
+                kind,
+                msg
+            }
+        };
+
         while self.pc < chunk.code.len() {
             let instr = chunk.code[self.pc];
+            self.line = chunk.debug_info[self.pc];
             self.pc += 1;
 
             if self.trace {
@@ -110,7 +162,8 @@ impl VM {
                     let new_val = match top_of_stack {
                         Value::Nil => Ok(true),
                         Value::Bool(val) => Ok(!val),
-                        _ => Err(self.type_err("Boolean or Nil", top_of_stack)),
+                        _ => Err(self.err(VMErrorKind::InvalidMathOperand)),
+                        //_ => Err(self.type_err("Boolean or Nil", top_of_stack)),
                     }?;
                     self.push(new_val.into());
                 }
@@ -118,8 +171,9 @@ impl VM {
                     let b = self.pop()?;
                     match b {
                         Value::Number(num) => {
-                            let a = self.pop_num()?;
+                            let a = self.pop_num().or(Err(self.err(VMErrorKind::InvalidAddOperands)))?;
                             self.push(Value::from(num + a));
+                            Ok(())
                         }
                         Value::Obj(b) => match b.get_otype() {
                             ObjectType::String => {
@@ -134,21 +188,15 @@ impl VM {
                                             Ok(())
                                         }
                                     },
-                                    _ => Err(self.type_err("String", a)),
-                                }?
+                                    _ => Err(self.err(VMErrorKind::InvalidAddOperands)),
+                                }
                             }
                         },
-                        _ => {
-                            return Err(VMError::Runtime(
-                                "Operands of + need to be numbers or strings".into(),
-                                self.pc,
-                            ))
-                        }
-                    };
+                        _ => Err(self.err(VMErrorKind::InvalidAddOperands)),
+                    }?
                 }
                 Op::Subtract | Op::Multiply | Op::Divide => {
-                    let b = self.pop_num()?;
-                    let a = self.pop_num()?;
+                    let (b, a) = self.pop_nums()?;
                     let r = match instr {
                         Op::Subtract => a - b,
                         Op::Multiply => a * b,
@@ -158,8 +206,7 @@ impl VM {
                     self.push(r.into())
                 }
                 Op::Greater | Op::Less => {
-                    let b = self.pop_num()?;
-                    let a = self.pop_num()?;
+                    let (b, a) = self.pop_nums()?;
                     let r = match instr {
                         Op::Greater => a > b,
                         Op::Less => a < b,
@@ -175,8 +222,7 @@ impl VM {
                 }
                 Op::Print => {
                     let value = self.pop()?;
-                    writeln!(output, "{}", value)
-                        .map_err(|_| VMError::Runtime("Failed to print".into(), self.pc))?
+                    writeln!(output, "{}", value).unwrap()
                 },
                 Op::Pop => {
                     self.pop()?;
@@ -185,11 +231,10 @@ impl VM {
                     let ident = chunk.constants[offset as usize].clone();
                     if let Value::Obj(name) = ident {
                         let name = name.downcast::<ObjString>().unwrap();
-                        globals.entry(name).or_insert(self.pop()?);
-                        Ok(())
+                        globals.entry(name).insert_entry(self.pop()?);
                     } else {
                         unreachable!()
-                    }?
+                    };
                 },
                 Op::GetGlobal { offset } => {
                     let ident = match chunk.constants[offset as usize] {
@@ -202,12 +247,11 @@ impl VM {
 
                         Ok(())
                     } else {
-                        Err(
-                            VMError::Runtime(
-                                format!("Undefined variable '{}'.", ident).into(),
-                                self.pc,
-                            )
-                        )
+                        Err(VMError {
+                            line: self.line,
+                            kind: VMErrorKind::UndefinedVariable,
+                            msg: Some(format!("Undefined variable '{}'.", ident)),
+                        })
                     }?
                 },
                 Op::SetGlobal { offset } => {
@@ -223,12 +267,11 @@ impl VM {
                             Ok(())
                         },
                         hash_map::Entry::Vacant(_) => {
-                            Err(
-                                VMError::Runtime(
-                                    format!("Undefined variable '{}'.", ident).into(),
-                                    self.pc,
-                                )
-                            )
+                            Err(VMError {
+                                line: self.line,
+                                kind: VMErrorKind::UndefinedVariable,
+                                msg: Some(format!("Undefined variable '{}'.", ident)),
+                            })
                         },
                     }?
                 },
