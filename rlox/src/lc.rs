@@ -293,6 +293,7 @@ pub enum ParseErrorKind {
     InvalidAssignmentTarget,
     InvalidVariableName,
     ScanError(ScanErrorKind),
+    RightBraceAfterBlock,
 }
 
 impl fmt::Display for ParseErrorKind {
@@ -307,7 +308,8 @@ impl fmt::Display for ParseErrorKind {
             ParseErrorKind::InvalidAssignmentTarget => write!(f, "Invalid assignment target."),
             ParseErrorKind::InvalidVariableName => write!(f, "Expect variable name."),
             ParseErrorKind::ScanError(ScanErrorKind::UndelimitedString) =>
-                write!(f, "Unterminated string.")
+                write!(f, "Unterminated string."),
+            ParseErrorKind::RightBraceAfterBlock => write!(f, "Expect '}}' after block.")
         }
     }
 }
@@ -540,7 +542,7 @@ impl<'src> Parser<'src> {
         self._expression(chunk, Precedence::None)
     }
 
-    pub fn must_consume(&mut self, expected: TokenType, error_kind: ParseErrorKind) -> Result<'src, Token<'src>> {
+    fn must_consume(&mut self, expected: TokenType, error_kind: ParseErrorKind) -> Result<'src, Token<'src>> {
         match self.scanner.peek().cloned() {
             Some(token) if token.ttype == expected => Ok(self.scanner.next().unwrap()),
             Some(token) => Err(self.error_at(token.clone(), error_kind)),
@@ -548,10 +550,25 @@ impl<'src> Parser<'src> {
         }
     }
 
-    pub fn print_statement(&mut self, print_token: Token<'src>, chunk: &mut Chunk) -> Result<'src, ()> {
+    fn print_statement(&mut self, print_token: Token<'src>, chunk: &mut Chunk) -> Result<'src, ()> {
         self.expression(chunk)?;
         chunk.add_op(Op::Print, print_token.line);
         self.must_consume(TokenType::Semicolon, ParseErrorKind::NoSemicolonAfterValue).map(|_| ())
+    }
+
+    fn block(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
+        loop {
+            match self.scanner.peek() {
+                Some(token) if token.ttype == TokenType::RightBrace => {
+                    self.scanner.next();
+                    break Ok(());
+                },
+                Some(_) => self.declaration(chunk),
+                None => {
+                    break Err(self.error_end(ParseErrorKind::RightBraceAfterBlock));
+                }
+            }
+        }
     }
 
     fn expr_statement(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
@@ -569,6 +586,10 @@ impl<'src> Parser<'src> {
             TokenType::Print => {
                 let print_token = self.scanner.next().unwrap();
                 self.print_statement(print_token, chunk)
+            },
+            TokenType::LeftBrace => {
+                self.scanner.next();
+                self.block(chunk)
             },
             _ => self.expr_statement(chunk),
         }
@@ -624,22 +645,17 @@ impl<'src> Parser<'src> {
 
     pub fn declaration(&mut self, chunk: &mut Chunk) {
         let peeked = self.scanner.peek().unwrap().clone();
-        match peeked.ttype {
+        let result = match peeked.ttype {
             TokenType::Var => {
                 self.scanner.next();
-                if let Err(err) = self.var_declaration(peeked, chunk) {
-                    self.errors.push(err);
-                    self.synchronize();
-                };
+                self.var_declaration(peeked, chunk)
             },
-            _ => {
-                self.statement(chunk).unwrap_or_else(
-                    |err| {
-                        self.errors.push(err);
-                        self.synchronize();
-                    }
-                )
-            }
+            _ => self.statement(chunk),
+        };
+
+        if let Err(err) = result {
+            self.errors.push(err);
+            self.synchronize();
         }
     }
 
@@ -973,5 +989,16 @@ mod tests {
         );
 
         test_parse_program(source, &expected);
+    }
+
+    #[test]
+    fn block_missing_brace() {
+        let source = "{ var a; ";
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(scanner);
+        let mut chunk = Chunk::new();
+        parser.compile(&mut chunk);
+
+        assert_eq!(parser.errors[0].kind, ParseErrorKind::RightBraceAfterBlock)
     }
 }
