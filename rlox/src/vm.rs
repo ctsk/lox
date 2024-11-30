@@ -286,7 +286,7 @@ impl VM {
 mod tests {
     use std::collections::LinkedList;
 
-    use crate::gc::GC;
+    use crate::{gc::GC, vm::VMErrorKind};
 
     use super::{Chunk, Op, VMError, Value, VM};
 
@@ -310,7 +310,7 @@ mod tests {
                 Op::Negate,
                 Op::Divide,
             ],
-            vec![],
+            vec![1; 15],
             vec![3., 7., 11., 17., 500., 1000., 250.]
                 .into_iter()
                 .map(Value::from)
@@ -330,12 +330,12 @@ mod tests {
 
     #[test]
     fn nil_error() {
-        let chunk = Chunk::new_with(vec![Op::Nil, Op::Negate], vec![], vec![], LinkedList::new());
+        let chunk = Chunk::new_with(vec![Op::Nil, Op::Negate], vec![1; 2], vec![], LinkedList::new());
 
         let mut vm = VM::new();
         assert_eq!(
-            vm.stdrun(&chunk).unwrap_err(),
-            vm.type_err("Number", Value::Nil)
+            vm.stdrun(&chunk).unwrap_err().kind,
+            VMErrorKind::InvalidMathOperand
         );
     }
 
@@ -343,7 +343,7 @@ mod tests {
     fn simple_booleans() -> Result<(), VMError> {
         let chunk = Chunk::new_with(
             vec![Op::False, Op::Not, Op::False, Op::Not, Op::Equal],
-            vec![],
+            vec![1; 5],
             vec![],
             LinkedList::new(),
         );
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn not_nil_is_true() -> Result<(), VMError>{
-        let chunk = Chunk::new_with(vec![Op::Nil, Op::Not], vec![], vec![], LinkedList::new());
+        let chunk = Chunk::new_with(vec![Op::Nil, Op::Not], vec![1; 2], vec![], LinkedList::new());
 
         let mut vm = VM::new();
         vm.stdrun(&chunk)?;
@@ -380,7 +380,7 @@ mod tests {
                 GetGlobal { offset: 1 },
                 Multiply,
             ],
-            vec![],
+            vec![1; 5],
             vec![Value::from(5.0), Value::from(var.get_object()), Value::from(6.0)],
             LinkedList::new()
         );
@@ -408,7 +408,7 @@ mod tests {
                 Pop,
                 GetGlobal { offset: 1 },
             ],
-            vec![1; 7],
+            vec![1; 8],
             vec![Value::from(5.0), Value::from(var.get_object()), Value::from(6.0)],
             LinkedList::new()
         );
