@@ -1,5 +1,3 @@
-#![allow(dead_code, unused)]
-
 use std::{collections::hash_map, fmt};
 use std::iter::Peekable;
 use std::str::CharIndices;
@@ -9,7 +7,7 @@ use crate::bc::Value;
 use crate::{bc::{Chunk, Op}, gc::GC};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum ScanErrorKind {
+pub enum ScanErrorKind {
     UndelimitedString,
 }
 
@@ -81,7 +79,7 @@ impl<'src> Source<'src> {
     }
 }
 
-impl<'src> Iterator for Source<'src> {
+impl Iterator for Source<'_> {
     type Item = (usize, usize, char);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -478,7 +476,7 @@ impl<'src> Parser<'src> {
                     let offset = self.add_string(chunk, token.span);
 
                     if self.scanner.peek().is_some_and(|t| t.ttype == TokenType::Equal) {
-                        if (min_prec <= Precedence::Assignment) {
+                        if min_prec <= Precedence::Assignment {
                             self.scanner.next();
                             self._expression(chunk, Precedence::Assignment)?;
                             chunk.add_op(Op::SetGlobal {offset}, token.line);
@@ -596,7 +594,7 @@ impl<'src> Parser<'src> {
     fn variable(&mut self) -> Result<'src, Token<'src>> {
         let ident = self.must_consume(TokenType::Identifier, ParseErrorKind::NoVariableName)?;
 
-        if (ident.span == "nil") {
+        if ident.span == "nil" {
             Err(self.error_at(ident, ParseErrorKind::InvalidVariableName))
         } else {
             Ok(ident)
@@ -617,7 +615,7 @@ impl<'src> Parser<'src> {
             }
         }
 
-        chunk.add_op(Op::DefineGlobal { offset }, ident.line);
+        chunk.add_op(Op::DefineGlobal { offset }, var_token.line);
 
         self.must_consume(TokenType::Semicolon, ParseErrorKind::NoSemicolonAfterVarDecl)?;
 
