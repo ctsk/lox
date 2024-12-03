@@ -275,11 +275,93 @@ impl<'src> Iterator for Scanner<'src> {
     }
 }
 
+struct Compiler {
+    locals: Vec<(String, usize, bool)>,
+    scope_depth: usize,
+}
+
+impl Default for Compiler {
+    fn default() -> Self {
+        Compiler {
+            locals: Vec::new(),
+            scope_depth: 0,
+        }
+    }
+}
+
+enum LocalsError {
+    TooMany,
+    DuplicateInScope,
+}
+
+impl Compiler {
+    fn enter_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn exit_scope(&mut self) -> usize {
+        let mut pop_count = 0;
+        while let Some(local) = self.locals.last() {
+            if local.1 < self.scope_depth {
+                break;
+            }
+            self.locals.pop();
+            pop_count += 1;
+        }
+        self.scope_depth -= 1;
+        return pop_count;
+    }
+
+    fn in_global_scope(&self) -> bool {
+        self.scope_depth <= 0
+    }
+
+    fn declare_local(&mut self, name: &str) -> std::result::Result<(), LocalsError> {
+        if self.locals.len() > u8::MAX as usize {
+            Err(LocalsError::TooMany)
+        } else {
+            for idx in (0..self.locals.len()).rev() {
+                if self.locals[idx].1 < self.scope_depth {
+                    break
+                }
+
+                if self.locals[idx].0 == name {
+                    return Err(LocalsError::DuplicateInScope)
+                }
+            }
+
+            self.locals.push((name.to_string(), self.scope_depth, false));
+            Ok(())
+        }
+    }
+
+    fn mark_last_initialized(&mut self) {
+       self.locals.last_mut().unwrap().2 = true;
+    }
+
+    // Err ( false ) -> not declared
+    // Err ( true ) -> declared but not initialized
+    fn resolve_local(&self, target: &str) -> std::result::Result<u8, bool> {
+        for idx in (0..self.locals.len()).rev() {
+            if self.locals[idx].0 == target {
+                return if !self.locals[idx].2 {
+                    Err(true)
+                } else {
+                    Ok(idx as u8)
+                }
+            }
+        }
+
+        Err(false)
+    }
+}
+
 struct Parser<'src> {
     scanner: Peekable<Scanner<'src>>,
     errors: Vec<ParseError<'src>>,
     intern_table: HashMap<&'src str, u8>,
     end_line: usize,
+    compiler: Compiler,
 }
 
 #[derive(Debug, PartialEq)]
@@ -294,6 +376,9 @@ pub enum ParseErrorKind {
     InvalidVariableName,
     ScanError(ScanErrorKind),
     RightBraceAfterBlock,
+    TooManyLocals,
+    DuplicateLocalInScope,
+    LocalInOwnInitializer
 }
 
 impl fmt::Display for ParseErrorKind {
@@ -309,7 +394,10 @@ impl fmt::Display for ParseErrorKind {
             ParseErrorKind::InvalidVariableName => write!(f, "Expect variable name."),
             ParseErrorKind::ScanError(ScanErrorKind::UndelimitedString) =>
                 write!(f, "Unterminated string."),
-            ParseErrorKind::RightBraceAfterBlock => write!(f, "Expect '}}' after block.")
+            ParseErrorKind::RightBraceAfterBlock => write!(f, "Expect '}}' after block."),
+            ParseErrorKind::TooManyLocals => write!(f, "Too many local variables in function."),
+            ParseErrorKind::DuplicateLocalInScope => write!(f, "Already a variable with this name in this scope."),
+            ParseErrorKind::LocalInOwnInitializer => write!(f, "Can't read local variable in its own initializer."),
         }
     }
 }
@@ -368,6 +456,7 @@ impl<'src> Parser<'src> {
             errors: Vec::new(),
             intern_table: HashMap::new(),
             end_line: line_count,
+            compiler: Default::default(),
         }
     }
 
@@ -475,19 +564,27 @@ impl<'src> Parser<'src> {
                     chunk.add_op(Op::False, token.line);
                 }
                 TokenType::Identifier => {
-                    let offset = self.add_string(chunk, token.span);
+                    let (get_op, set_op) = match self.compiler.resolve_local(&token.span) {
+                        Ok(offset) => (Op::GetLocal { offset }, Op::SetLocal { offset }),
+                        Err(true) => {
+                            return Err(self.error_at(token, ParseErrorKind::LocalInOwnInitializer));
+                        },
+                        Err(false) => {
+                            let offset = self.add_string(chunk, token.span);
+                            (Op::GetGlobal { offset }, Op::SetGlobal { offset })
 
-                    if self.scanner.peek().is_some_and(|t| t.ttype == TokenType::Equal) {
+                        }
+                    };
+
+                    if let Some(eq_token) = self.scanner.next_if(|token| token.ttype == TokenType::Equal) {
                         if min_prec <= Precedence::Assignment {
-                            self.scanner.next();
                             self._expression(chunk, Precedence::Assignment)?;
-                            chunk.add_op(Op::SetGlobal {offset}, token.line);
+                            chunk.add_op(set_op, token.line);
                         } else {
-                            let eq_token = self.scanner.next().unwrap();
                             return Err(self.error_at(eq_token, ParseErrorKind::InvalidAssignmentTarget));
                         }
                     } else {
-                        chunk.add_op(Op::GetGlobal {offset}, token.line);
+                        chunk.add_op(get_op, token.line);
                     };
                 }
                 TokenType::Error(err) => {
@@ -557,10 +654,15 @@ impl<'src> Parser<'src> {
     }
 
     fn block(&mut self, chunk: &mut Chunk) -> Result<'src, ()> {
+        self.compiler.enter_scope();
         loop {
             match self.scanner.peek() {
                 Some(token) if token.ttype == TokenType::RightBrace => {
-                    self.scanner.next();
+                    let token = self.scanner.next().unwrap();
+                    let pop_count = self.compiler.exit_scope();
+                    for _ in 0..pop_count {
+                        chunk.add_op(Op::Pop, token.line);
+                    }
                     break Ok(());
                 },
                 Some(_) => self.declaration(chunk),
@@ -624,7 +726,15 @@ impl<'src> Parser<'src> {
 
     fn var_declaration(&mut self, var_token: Token<'src>, chunk: &mut Chunk) ->  Result<'src, ()> {
         let ident = self.variable()?;
-        let offset = self.add_string(chunk, ident.span);
+
+        if !self.compiler.in_global_scope() {
+            self.compiler.declare_local(ident.span).map_err(
+                |err| match err {
+                    LocalsError::TooMany => self.error_at(ident.clone(), ParseErrorKind::TooManyLocals),
+                    LocalsError::DuplicateInScope => self.error_at(ident.clone(), ParseErrorKind::DuplicateLocalInScope)
+                }
+            )?
+        }
 
         match self.scanner.peek() {
             Some(token) if token.ttype == TokenType::Equal => {
@@ -636,7 +746,12 @@ impl<'src> Parser<'src> {
             }
         }
 
-        chunk.add_op(Op::DefineGlobal { offset }, var_token.line);
+        if self.compiler.in_global_scope() {
+            let offset = self.add_string(chunk, ident.span);
+            chunk.add_op(Op::DefineGlobal { offset }, var_token.line);
+        } else {
+            self.compiler.mark_last_initialized();
+        }
 
         self.must_consume(TokenType::Semicolon, ParseErrorKind::NoSemicolonAfterVarDecl)?;
 

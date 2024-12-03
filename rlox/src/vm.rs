@@ -275,6 +275,12 @@ impl VM {
                         },
                     }?
                 },
+                Op::GetLocal { offset } => {
+                    self.push(self.stack[offset as usize].clone())
+                },
+                Op::SetLocal { offset } => {
+                    self.stack[offset as usize] = self.stack.last().unwrap().clone()
+                },
             }
         }
 

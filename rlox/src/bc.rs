@@ -27,6 +27,9 @@ pub enum Op {
     DefineGlobal { offset: u8 },
     GetGlobal { offset: u8 },
     SetGlobal { offset: u8 },
+
+    GetLocal { offset: u8 },
+    SetLocal { offset: u8 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
